@@ -2,6 +2,7 @@
 // API (/api/*) burada; arayüz dosyaları public/ klasöründen sunulur.
 
 import { PROGRAMS, ADIM, SONUCLU, KAYIT_DONEMLERI, bosTez } from '../public/shared.js';
+import { hatirlatmalar, haftalikOzet } from './hatirlatma.js';
 
 const SESSION_DAYS = 30;
 const INVITE_DAYS = 14;
@@ -18,6 +19,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS tokens (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, type TEXT NOT NULL, expires_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS attempts (email TEXT NOT NULL, at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS reminders (student_id TEXT NOT NULL, rkey TEXT NOT NULL, sent_at TEXT NOT NULL, PRIMARY KEY (student_id, rkey))`,
   `CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, student_id TEXT, actor TEXT, action TEXT, detail TEXT, created_at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_courses_s ON courses(student_id)`,
   `CREATE INDEX IF NOT EXISTS idx_files_s ON files(student_id)`,
@@ -29,6 +31,10 @@ let schemaReady = false;
 async function ensureSchema(env) {
   if (schemaReady) return;
   await env.DB.batch(SCHEMA.map(s => env.DB.prepare(s)));
+  // Sonradan eklenen sütunlar (varsa hata verir, yok sayılır)
+  for (const sql of [`ALTER TABLE students ADD COLUMN kayit_turu TEXT NOT NULL DEFAULT 'normal'`]) {
+    try { await env.DB.prepare(sql).run(); } catch {}
+  }
   schemaReady = true;
 }
 
@@ -130,7 +136,7 @@ async function loadStudent(env, id) {
   ]);
   return {
     id: s.id, ad: s.ad, eposta: s.email, no: s.no || '', program: s.program, kayit: s.kayit,
-    donem: s.donem, danismanDonem: s.danisman_donem, statu: s.statu || '', arsiv: !!s.arsiv,
+    donem: s.donem, danismanDonem: s.danisman_donem, statu: s.statu || '', arsiv: !!s.arsiv, kayitTuru: s.kayit_turu || 'normal',
     davetBekliyor: !s.pass_hash, kvkk: s.kvkk_at,
     tez: { ...bosTez(), ...parse(s.tez, {}) },
     adim: parse(s.adim, {}), adimTarih: parse(s.adim_tarih, {}),
@@ -149,9 +155,24 @@ async function studentOr404(env, user, sid) {
 const intIn = (v, lo, hi) => { const n = Number(v); return Number.isInteger(n) && n >= lo && n <= hi ? n : null; };
 const grade = v => (v === null || v === undefined || v === '') ? null : intIn(v, 0, 100) ?? fail(400, 'Not 0 ile 100 arasında olmalı.');
 const str = (v, max = 300) => String(v ?? '').trim().slice(0, max);
+const kayitTuru = v => v === 'af' ? 'af' : 'normal';
 
 /* ---------------- Yönlendirme ---------------- */
+async function gunlukCalisma(env) {
+  await ensureSchema(env);
+  if (!env.RESEND_API_KEY) return { atlandi: 'E-posta ayarlı değil' };
+  const r = await hatirlatmalar(env, { gonder: true, sendMail });
+  if (r.pazartesi) {
+    const ozet = await haftalikOzet(env);
+    if (ozet) await sendMail(env, await advisorEmail(env), 'Lisansüstü Panel: haftalık özet', ozet);
+  }
+  return r;
+}
+
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(gunlukCalisma(env));
+  },
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) {
@@ -264,6 +285,17 @@ async function route(req, env, ctx, url) {
     return json({ ok: true });
   }
 
+  if (p === '/api/hatirlatmalar' && M === 'GET') {
+    if (!isAdv) fail(403, 'Yetkin yok.');
+    const r = await hatirlatmalar(env, { gonder: false });
+    return json({ ...r, mailVar: !!env.RESEND_API_KEY });
+  }
+  if (p === '/api/hatirlatmalar/gonder' && M === 'POST') {
+    if (!isAdv) fail(403, 'Yetkin yok.');
+    if (!env.RESEND_API_KEY) fail(400, 'E-posta gönderimi ayarlı değil.');
+    const r = await hatirlatmalar(env, { gonder: true, sendMail });
+    return json({ ok: true, gonderilen: r.liste.length });
+  }
   if (p === '/api/ogrenciler' && M === 'GET') {
     const ids = isAdv
       ? (await env.DB.prepare(`SELECT user_id FROM students ORDER BY arsiv, user_id`).all()).results.map(r => r.user_id)
@@ -284,8 +316,8 @@ async function route(req, env, ctx, url) {
     const id = uid();
     await env.DB.batch([
       env.DB.prepare(`INSERT INTO users (id, email, ad, role, created_at) VALUES (?,?,?,?,?)`).bind(id, email, ad, 'ogrenci', now()),
-      env.DB.prepare(`INSERT INTO students (user_id, no, program, kayit, donem, danisman_donem, statu, tez, adim, adim_tarih) VALUES (?,?,?,?,?,?,?,?,?,?)`)
-        .bind(id, str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60) || 'Normal öğretim', JSON.stringify(bosTez()), '{}', '{}'),
+      env.DB.prepare(`INSERT INTO students (user_id, no, program, kayit, donem, danisman_donem, statu, tez, adim, adim_tarih, kayit_turu) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+        .bind(id, str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60) || 'Normal öğretim', JSON.stringify(bosTez()), '{}', '{}', kayitTuru(b.kayitTuru)),
     ]);
     const link = await makeToken(env, id, 'invite');
     const gitti = await sendMail(env, email, 'Lisansüstü Panel davetin', `Merhaba ${ad},\n\nDanışmanın ${user.ad} seni Lisansüstü Panel'e davet etti. Bu panelde ders ve tez sürecini takip edebilir, dosyalarını yükleyebilir ve danışmanınla yazışabilirsin.\n\nŞifreni belirlemek için bağlantı (${INVITE_DAYS} gün geçerli):\n${link}`);
@@ -320,8 +352,8 @@ async function route(req, env, ctx, url) {
       if (!PROGRAMS[b.program] || !KAYIT_DONEMLERI.includes(b.kayit)) fail(400, 'Program ve kayıt dönemi geçersiz.');
       await env.DB.batch([
         env.DB.prepare(`UPDATE users SET ad = ?, email = ? WHERE id = ?`).bind(ad, email, sid),
-        env.DB.prepare(`UPDATE students SET no = ?, program = ?, kayit = ?, donem = ?, danisman_donem = ?, statu = ?, arsiv = ? WHERE user_id = ?`)
-          .bind(str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60), b.arsiv ? 1 : 0, sid),
+        env.DB.prepare(`UPDATE students SET no = ?, program = ?, kayit = ?, donem = ?, danisman_donem = ?, statu = ?, arsiv = ?, kayit_turu = ? WHERE user_id = ?`)
+          .bind(str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60), b.arsiv ? 1 : 0, kayitTuru(b.kayitTuru), sid),
       ]);
     } else {
       // Öğrenci e-posta (giriş adresi) ve arşiv dışındaki her şeyi güncelleyebilir
@@ -330,8 +362,8 @@ async function route(req, env, ctx, url) {
       if (!PROGRAMS[b.program] || !KAYIT_DONEMLERI.includes(b.kayit)) fail(400, 'Program ve kayıt dönemi geçersiz.');
       await env.DB.batch([
         env.DB.prepare(`UPDATE users SET ad = ? WHERE id = ?`).bind(ad, sid),
-        env.DB.prepare(`UPDATE students SET no = ?, program = ?, kayit = ?, donem = ?, danisman_donem = ?, statu = ? WHERE user_id = ?`)
-          .bind(str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60), sid),
+        env.DB.prepare(`UPDATE students SET no = ?, program = ?, kayit = ?, donem = ?, danisman_donem = ?, statu = ?, kayit_turu = ? WHERE user_id = ?`)
+          .bind(str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60), kayitTuru(b.kayitTuru), sid),
       ]);
     }
     return json({ ok: true });

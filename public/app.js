@@ -50,7 +50,8 @@ const tema = () => document.documentElement.dataset.theme === 'dark' ? 'dark' : 
 function temaUygula(t) { document.documentElement.dataset.theme = t; try { localStorage.setItem('lp-tema', t); } catch (e) {} }
 
 /* ======================== KURAL MOTORU ======================== */
-function yonetmelik(kayit) {
+function yonetmelik(kayit, tur) {
+  if (tur === 'af') return { ad: 'Af kapsamında dönüş', not: `Dönüş dönemi: ${kayit}. Süreler ve uygulanacak hükümler enstitü kararına göre; panel ders ve tez koşullarını yönetmeliğe göre izler.` };
   if (kayit >= '2026-2027') return { ad: '28/6/2026 tarihli yönetmelik', not: '' };
   if (kayit === '2025-2026 Bahar') return { ad: '14/12/2025 tarihli yönetmelik', not: 'Geçici Madde 1 gereği' };
   return { ad: '24/9/2023 tarihli yönetmelik', not: 'Geçici Madde 1 gereği; kurallar o yönetmeliğe göre doğrulanacak' };
@@ -157,14 +158,15 @@ function kontroller(s) {
   L.push({ ad: 'Tez savunmasında kabul', ref: 'M23/6', val: '', d: st3(s.adim.savunma === 'tamam', false) });
   L.push({ ad: 'Genel not ortalaması en az 70', ref: 'M23/10', val: a.gno ? fmt(a.gno) : '—', d: a.gno == null ? 'bekliyor' : a.gno >= 70 && a.ders >= 7 ? 'tamam' : 'surec' });
   L.push({ ad: 'Ciltli tez (en az 3 kopya) 1 ay içinde', ref: 'M23/10', val: '', d: st3(s.adim.ciltli === 'tamam', s.adim.ciltli === 'onay') });
-  L.push({ ad: 'Süre', ref: 'Normal 4, en çok 6 yarıyıl · erken mezuniyet en az 3 yarıyıl (M21)', val: `${s.donem}. yarıyıl`, d: s.donem <= 4 ? 'tamam' : 'surec' });
+  if (s.kayitTuru === 'af') L.push({ ad: 'Süre', ref: 'Af kapsamında dönüş · süre enstitü kararına göre', val: `${s.donem}. yarıyıl`, d: 'surec' });
+  else L.push({ ad: 'Süre', ref: 'Normal 4, en çok 6 yarıyıl · erken mezuniyet en az 3 yarıyıl (M21)', val: `${s.donem}. yarıyıl`, d: s.donem <= 4 ? 'tamam' : 'surec' });
   return L;
 }
 function hatirlatmalar(s) {
   const a = hesapla(s, 0), L = [];
   if (s.donem >= 2 && s.adim.konu !== 'tamam') L.push('Tez konusu 2. yarıyıl sonuna kadar belirlenmeli.');
-  if (s.donem >= 4 && (a.ders < 7 || a.kredi < 21 || a.sem < 1)) L.push('4. yarıyıl sonunda kredili dersler ve seminer tamamlanmış olmalı.');
-  if (s.donem >= 5) L.push(`Azami süre: ${Math.max(0, 6 - s.donem + 1)} yarıyıl kaldı.`);
+  if (s.kayitTuru !== 'af' && s.donem >= 4 && (a.ders < 7 || a.kredi < 21 || a.sem < 1)) L.push('4. yarıyıl sonunda kredili dersler ve seminer tamamlanmış olmalı.');
+  if (s.kayitTuru !== 'af' && s.donem >= 5) L.push(`Azami süre: ${Math.max(0, 6 - s.donem + 1)} yarıyıl kaldı.`);
   if (s.program === 'pdr' && a.ders >= 6 && a.ders < 7 && !s.dersler.some(r => r.durum !== 'tamam' && kat(s, r.kod).tur === 'secmeli')) L.push('7. kredili ders için bir seçmeli daha gerekiyor.');
   return L;
 }
@@ -190,6 +192,7 @@ const ICON = {
   notlar: '<path d="M4 5h16v11H9l-5 4z"/>',
   ogrenciler: '<circle cx="9" cy="8" r="3.5"/><path d="M2 20c1-3.5 3.8-5 7-5s6 1.5 7 5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 15c2 .6 3.4 2.2 4 5"/>',
   onaylar: '<path d="M4 12l5 5L20 6"/>',
+  hatirlatma: '<path d="M6 16V11a6 6 0 0112 0v5l2 2H4z"/><path d="M10 20a2 2 0 004 0"/>',
   hesap: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
   cikis: '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>',
@@ -274,7 +277,7 @@ function render() {
   const adv = isAdv(), s = cur(), bek = adv ? bekleyenler() : [];
   let nav = '';
   if (adv) {
-    nav += `<div class="grp eyebrow">Danışman</div>` + navi('ogrenciler', 'Öğrencilerim') + navi('onaylar', 'Onay bekleyenler', bek.length);
+    nav += `<div class="grp eyebrow">Danışman</div>` + navi('ogrenciler', 'Öğrencilerim') + navi('onaylar', 'Onay bekleyenler', bek.length) + navi('hatirlatma', 'Hatırlatmalar');
     if (s) nav += `<div class="grp eyebrow">${esc(s.ad)}</div>` + OGR_MENU.map(([k, t]) => navi(k, t)).join('');
   } else if (s) {
     const n = Object.values(s.adim).filter(x => x === 'onay').length;
@@ -303,6 +306,7 @@ function anaIcerik() {
   if (S.section === 'hesap') return hesapHTML();
   if (adv && S.section === 'ogrenciler') return ogrencilerHTML();
   if (adv && S.section === 'onaylar') return onaylarHTML();
+  if (adv && S.section === 'hatirlatma') return hatirlatmaHTML();
   const s = cur();
   if (!s) return `<section class="panel"><h2>Kayıt bulunamadı</h2><p class="muted">Öğrenci kaydına ulaşılamadı. Danışmanınla iletişime geç.</p></section>`;
   let h = '';
@@ -331,7 +335,7 @@ function heroHTML(s) {
   </section>`;
 }
 function genelHTML(s) {
-  const p = ilerleme(s), a = p.a, hat = hatirlatmalar(s), yon = yonetmelik(s.kayit);
+  const p = ilerleme(s), a = p.a, hat = hatirlatmalar(s), yon = yonetmelik(s.kayit, s.kayitTuru);
   const satir = x => `<div style="display:grid;gap:5px"><div class="row" style="justify-content:space-between"><span>${esc(x.ad)}</span><span class="mono muted">%${Math.round(x.all * 100)}</span></div><div class="meter"><i class="p" style="width:${x.all * 100}%"></i><i style="width:${x.ok * 100}%"></i></div></div>`;
   return `
   <div class="grid3">
@@ -352,7 +356,7 @@ function genelHTML(s) {
   </div>`;
 }
 function kisiselHTML(s) {
-  const P = PROGRAMS[s.program], yon = yonetmelik(s.kayit), adv = isAdv();
+  const P = PROGRAMS[s.program], yon = yonetmelik(s.kayit, s.kayitTuru), adv = isAdv();
   const f = (id, lab, val, type = 'text', ro = false) => `<div class="field"><label for="${id}">${lab}</label><input class="input" id="${id}" type="${type}" value="${esc(val)}" ${ro ? 'readonly' : ''}></div>`;
   const sel = (id, lab, opts, val, ro) => `<div class="field"><label for="${id}">${lab}</label><select class="input" id="${id}" ${ro ? 'disabled' : ''}>${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(val) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>`;
   return `<section class="panel"><h2>Kişisel bilgiler</h2>
@@ -360,7 +364,8 @@ function kisiselHTML(s) {
     <div class="grid2" style="gap:14px">
       ${f('k-ad', 'Ad soyad', s.ad)}${f('k-no', 'Öğrenci numarası', s.no)}
       ${f('k-eposta', 'E-posta (giriş adresi)', s.eposta, 'email', !adv)}
-      ${sel('k-kayit', 'Kayıt dönemi', KAYIT_DONEMLERI.map(x => [x, x]), s.kayit)}
+      ${sel('k-tur', 'Kayıt türü', [['normal', 'Normal kayıt'], ['af', 'Af ile dönen öğrenci']], s.kayitTuru)}
+      ${sel('k-kayit', s.kayitTuru === 'af' ? 'Dönüş dönemi' : 'Kayıt dönemi', KAYIT_DONEMLERI.map(x => [x, x]), s.kayit)}
       ${sel('k-program', 'Program', Object.entries(PROGRAMS).map(([k, v]) => [k, v.ad]), s.program)}
       ${f('k-abd', 'Anabilim dalı', P.abd, 'text', true)}
       ${sel('k-donem', 'Şu anki yarıyıl', [1, 2, 3, 4, 5, 6, 7, 8].map(n => [n, n + '. yarıyıl']), s.donem)}
@@ -528,7 +533,7 @@ function mezuniyetHTML(s) {
   const L = kontroller(s), n = L.filter(x => x.d === 'tamam').length;
   const icn = { tamam: '✓', surec: '…', bekliyor: '' };
   return `<section class="panel"><div class="row" style="justify-content:space-between"><h2>Mezuniyet koşulları</h2><span class="pill ok">${n} / ${L.length} tamam</span></div>
-    <p class="muted" style="margin:0">Mersin Üniversitesi Lisansüstü Eğitim-Öğretim ve Sınav Yönetmeliği'ne göre otomatik hesaplanır. Uygulanan yönetmelik: ${esc(yonetmelik(s.kayit).ad)}.</p>
+    <p class="muted" style="margin:0">Mersin Üniversitesi Lisansüstü Eğitim-Öğretim ve Sınav Yönetmeliği'ne göre otomatik hesaplanır. Uygulanan yönetmelik: ${esc(yonetmelik(s.kayit, s.kayitTuru).ad)}.</p>
     <div class="checks">${L.map(x => `<div class="chk ${x.d}"><span class="ic">${icn[x.d]}</span><div>${esc(x.ad)}<div class="ref">${esc(x.ref)}</div></div><span class="val">${esc(x.val)}</span></div>`).join('')}</div>
   </section>`;
 }
@@ -671,7 +676,7 @@ function ogrencilerHTML() {
   const kart = s => { const p = ilerleme(s), h = hatirlatmalar(s), nb = bek.filter(x => x.s === s).length; return `
     <button class="scard" data-a="ac" data-s="${s.id}">
       <div><div class="nm">${esc(s.ad)}</div><div class="muted" style="font-size:13.5px">${esc(PROGRAMS[s.program].kisa)} · ${s.donem}. yarıyıl${s.no ? ' · ' + esc(s.no) : ''}</div>
-        ${s.davetBekliyor ? '<div class="flagnote">• Davet bekliyor (henüz şifre belirlemedi)</div>' : ''}${s.arsiv ? '' : h.map(x => `<div class="flagnote">• ${esc(x)}</div>`).join('')}</div>
+        ${s.kayitTuru === 'af' ? '<span class="pill off" style="margin-top:4px">Af ile dönen</span>' : ''}${s.davetBekliyor ? '<div class="flagnote">• Davet bekliyor (henüz şifre belirlemedi)</div>' : ''}${s.arsiv ? '' : h.map(x => `<div class="flagnote">• ${esc(x)}</div>`).join('')}</div>
       <div style="display:grid;gap:6px">${segBar(p, 'mini')}<div class="muted" style="font-size:13px">Sıradaki: ${esc(siradaki(s).b)}</div></div>
       <div style="display:grid;justify-items:end;gap:4px"><span class="p">%${Math.round(p.all)}</span>${nb ? `<span class="pill wait">${nb} onay bekliyor</span>` : ''}${s.arsiv ? '<span class="pill off">Arşiv</span>' : ''}</div>
     </button>`; };
@@ -689,7 +694,8 @@ function ogrencilerHTML() {
       <div class="field"><label for="y-email">E-posta</label><input class="input" id="y-email" type="email" required></div>
       <div class="field"><label for="y-no">Öğrenci numarası</label><input class="input" id="y-no"></div>
       <div class="field"><label for="y-program">Program</label><select class="input" id="y-program">${Object.entries(PROGRAMS).map(([k, v]) => `<option value="${k}">${esc(v.ad)}</option>`).join('')}</select></div>
-      <div class="field"><label for="y-kayit">Kayıt dönemi</label><select class="input" id="y-kayit">${KAYIT_DONEMLERI.map(x => `<option ${x === '2026-2027 Güz' ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+      <div class="field"><label for="y-tur">Kayıt türü</label><select class="input" id="y-tur"><option value="normal">Normal kayıt</option><option value="af">Af ile dönen öğrenci</option></select></div>
+      <div class="field"><label for="y-kayit">Kayıt dönemi (af ile dönenlerde dönüş dönemi)</label><select class="input" id="y-kayit">${KAYIT_DONEMLERI.map(x => `<option ${x === '2026-2027 Güz' ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
       <div class="field"><label for="y-donem">Şu anki yarıyıl</label><select class="input" id="y-donem">${[1, 2, 3, 4, 5, 6].map(n => `<option value="${n}">${n}. yarıyıl</option>`).join('')}</select></div>
       <div class="field"><label for="y-ddonem">Danışmanın atandığı yarıyıl</label><select class="input" id="y-ddonem">${[1, 2, 3, 4].map(n => `<option value="${n}">${n}. yarıyıl</option>`).join('')}</select></div>
     </div>
@@ -703,6 +709,33 @@ function ogrencilerHTML() {
   <div class="slist">${aktif.map(kart).join('') || '<section class="panel"><p class="muted" style="margin:0">Henüz öğrenci yok. "Öğrenci ekle" ile ilk öğrencinizi ekleyin.</p></section>'}</div>
   ${arsiv.length ? `<div class="eyebrow">Arşiv</div><div class="slist">${arsiv.map(kart).join('')}</div>` : ''}
   ${aktif.some(s => s.davetBekliyor) || S.students.length ? `<p class="muted" style="font-size:13.5px;margin:0">Bir öğrenciye yeni davet ya da şifre yenileme bağlantısı göndermek için öğrenciyi açıp "Kişisel bilgiler"e gidin.</p>` : ''}`;
+}
+const KURALLAR = [
+  ['Dönem başı', 'Eylül sonu–Ekim başı ve Şubat ortası: yarıyıl bilgisini ve bu dönemin derslerini güncelleme hatırlatması. Dönemde bir kez.'],
+  ['Not girişi', 'Ocak sonu ve Haziran sonu: "alıyor" görünen dersi olan öğrenciye notlarını girmesi hatırlatması. Dönemde bir kez.'],
+  ['Tez konusu', '2. yarıyıldan itibaren tez konusu belirlenmemişse ayda bir.'],
+  ['Ders dönemi sonu', '4. yarıyılda kredili dersler veya seminer eksikse dönemde bir kez (af ile dönenlere gönderilmez).'],
+  ['Savunma', 'Savunma tarihinden 7 gün ve 1 gün önce.'],
+  ['Ciltli teslim', 'Savunma onaylandıktan 14 ve 25 gün sonra, ciltli teslim işaretlenmemişse.'],
+  ['Sessizlik', 'Tez konusu belli olan öğrenciden 45 gündür dosya, not veya ders güncellemesi yoksa "Nasıl gidiyor?" e-postası.'],
+  ['Haftalık özet', 'Her pazartesi size: onay bekleyenler, yorum bekleyen sürümler, yaklaşan savunmalar ve giden hatırlatmalar.'],
+];
+function hatirlatmaHTML() {
+  const h = S.hatirlatma;
+  if (!h) { hatirlatmaYukle(); return '<div class="loading" style="min-height:30vh">Yükleniyor…</div>'; }
+  return `<div><span class="eyebrow">Danışman paneli</span><h1 style="font-size:30px;margin-top:4px">Hatırlatmalar</h1></div>
+  <section class="panel"><h2>Bugün gidecekler</h2>
+    <p class="muted" style="margin:0">Panel her sabah 09:00'da kontrol eder ve aşağıdakileri öğrencilere e-postayla gönderir. Aynı hatırlatma bir öğrenciye bir kez gider.${h.mailVar ? '' : ' E-posta gönderimi ayarlı olmadığı için şu an hatırlatma gitmiyor.'}</p>
+    ${h.liste.length ? h.liste.map((x, i) => `<details class="q" style="display:block"><summary style="cursor:pointer"><b>${esc(x.ogrenci)}</b> · ${esc(x.konu)}</summary><div class="cm" style="white-space:pre-wrap;margin-top:8px">${esc(x.metin)}</div></details>`).join('') : '<p class="muted" style="margin:0">Bugün gönderilecek hatırlatma yok.</p>'}
+    ${h.liste.length && h.mailVar ? `<div class="row"><button class="btn" data-a="hatirlatma-gonder">Şimdi gönder</button><span class="muted" style="font-size:13px">Beklemeden hemen göndermek için. Göndermezseniz yarın sabah kendiliğinden gider.</span></div>` : ''}
+  </section>
+  <section class="panel"><h2>Kurallar</h2>
+    <div class="checks">${KURALLAR.map(([a, b]) => `<div class="chk bekliyor"><span class="ic">✉</span><div><b style="font-weight:600">${a}</b><div class="ref">${b}</div></div><span></span></div>`).join('')}</div>
+  </section>`;
+}
+async function hatirlatmaYukle() {
+  try { S.hatirlatma = await api('/hatirlatmalar'); } catch (e) { S.hatirlatma = { liste: [], mailVar: false }; toast(e.message); }
+  if (S.section === 'hatirlatma') render();
 }
 function onaylarHTML() {
   const L = bekleyenler();
@@ -756,7 +789,8 @@ document.addEventListener('click', async e => {
       case 'ekran': S.ekran = el.dataset.k; S.hata = ''; history.replaceState(null, '', '/'); break;
       case 'cikis': await api('/cikis', { method: 'POST', body: {} }); S.ben = null; S.students = []; S.ekran = 'giris'; S.modal = null; break;
       case 'toggle': if (innerWidth <= 760) S.mopen = !S.mopen; else S.collapsed = !S.collapsed; break;
-      case 'nav': S.section = el.dataset.k; S.mopen = false; S.notEdit = null; S.ekleKod = null; if (isAdv() && ['ogrenciler', 'onaylar'].includes(el.dataset.k)) S.viewing = null; scrollTo(0, 0); break;
+      case 'nav': if (el.dataset.k === 'hatirlatma') S.hatirlatma = null; S.section = el.dataset.k; S.mopen = false; S.notEdit = null; S.ekleKod = null; if (isAdv() && ['ogrenciler', 'onaylar'].includes(el.dataset.k)) S.viewing = null; scrollTo(0, 0); break;
+      case 'hatirlatma-gonder': { const r = await api('/hatirlatmalar/gonder', { method: 'POST', body: {} }); S.hatirlatma = null; toast(`${r.gonderilen} hatırlatma gönderildi`); break; }
       case 'ac': S.viewing = el.dataset.s; S.section = el.dataset.k || 'genel'; scrollTo(0, 0); break;
       case 'ekle-ac': S.ekleAcik = !S.ekleAcik; break;
       case 'link-kapat': S.sonLink = null; break;
@@ -766,7 +800,7 @@ document.addEventListener('click', async e => {
         catch { const r = document.createRange(); r.selectNodeContents(document.getElementById('son-link')); getSelection().removeAllRanges(); getSelection().addRange(r); toast('Bağlantı seçildi', 'Kopyalamak için Ctrl/Cmd + C'); }
         return; }
       case 'ogrenci-ekle': {
-        const b = { ad: val('y-ad'), email: val('y-email'), no: val('y-no'), program: val('y-program'), kayit: val('y-kayit'), donem: +val('y-donem'), danismanDonem: +val('y-ddonem') };
+        const b = { ad: val('y-ad'), email: val('y-email'), no: val('y-no'), program: val('y-program'), kayit: val('y-kayit'), kayitTuru: val('y-tur'), donem: +val('y-donem'), danismanDonem: +val('y-ddonem') };
         S.mesgul = true; render();
         try { const r = await api('/ogrenciler', { method: 'POST', body: b }); S.sonLink = { ad: b.ad, link: r.link, mailGitti: r.mailGitti }; S.ekleAcik = false; await yukleHepsi(); toast('Öğrenci eklendi'); }
         finally { S.mesgul = false; }
@@ -777,8 +811,8 @@ document.addEventListener('click', async e => {
         break; }
       case 'kaydet-kisisel': {
         const b = isAdv()
-          ? { ad: val('k-ad'), eposta: val('k-eposta'), no: val('k-no'), program: val('k-program'), kayit: val('k-kayit'), donem: +val('k-donem'), danismanDonem: +val('k-ddonem'), statu: val('k-statu'), arsiv: document.getElementById('k-arsiv')?.checked }
-          : { ad: val('k-ad'), no: val('k-no'), program: val('k-program'), kayit: val('k-kayit'), donem: +val('k-donem'), danismanDonem: +val('k-ddonem'), statu: val('k-statu') };
+          ? { ad: val('k-ad'), eposta: val('k-eposta'), no: val('k-no'), program: val('k-program'), kayit: val('k-kayit'), kayitTuru: val('k-tur'), donem: +val('k-donem'), danismanDonem: +val('k-ddonem'), statu: val('k-statu'), arsiv: document.getElementById('k-arsiv')?.checked }
+          : { ad: val('k-ad'), no: val('k-no'), program: val('k-program'), kayit: val('k-kayit'), kayitTuru: val('k-tur'), donem: +val('k-donem'), danismanDonem: +val('k-ddonem'), statu: val('k-statu') };
         await api(`/ogrenciler/${s.id}/profil`, { method: 'PUT', body: b }); if (!isAdv()) S.ben.ad = b.ad; await yenile(s.id); toast('Kişisel bilgiler kaydedildi');
         break; }
       case 'kaydet-tez': {
