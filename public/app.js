@@ -98,13 +98,13 @@ function hesapla(s, pw) {
 const BOLUMLER = [
   { k: 'kayit', ad: 'Başlangıç', w: 5 }, { k: 'dersler', ad: 'Kredili dersler', w: 30 },
   { k: 'zorunlu', ad: 'Yöntem ve etik dersleri', w: 5 }, { k: 'seminer', ad: 'Seminer', w: 5 },
-  { k: 'oneri', ad: 'Tez önerisi', w: 10 }, { k: 'uad', ad: 'Uzmanlık alan dersleri', w: 5 },
+  { k: 'uad', ad: 'Uzmanlık alan dersleri', w: 5 }, { k: 'oneri', ad: 'Tez önerisi', w: 10 },
   { k: 'yazim', ad: 'Tez yazımı', w: 20 }, { k: 'hazirlik', ad: 'Savunmaya hazırlık', w: 8 },
   { k: 'savunma', ad: 'Savunma', w: 8 }, { k: 'teslim', ad: 'Mezuniyet', w: 4 },
 ];
 const BAYRAKLAR = [
-  { ad: 'Başlangıç', at: 0, k: ['kayit'] }, { ad: 'Ders dönemi', at: 45, k: ['dersler', 'zorunlu', 'seminer'] },
-  { ad: 'Tez önerisi', at: 55, k: ['oneri'] }, { ad: 'Tez', at: 80, k: ['yazim'] },
+  { ad: 'Başlangıç', at: 0, k: ['kayit'] }, { ad: 'Ders dönemi', at: 50, k: ['dersler', 'zorunlu', 'seminer'] },
+  { ad: 'Tez önerisi', at: 60, k: ['oneri'] }, { ad: 'Tez', at: 80, k: ['yazim'] },
   { ad: 'Savunma', at: 88, k: ['hazirlik', 'savunma'] }, { ad: 'Mezuniyet', at: 100, k: ['teslim'] },
 ];
 function ilerleme(s) {
@@ -151,7 +151,7 @@ function asamaBilgisi(s, sen) {
   if (s.adim.oneriKabul === 'tamam') return t(`Tezinin ${yazim.length} aşamasından ${yz} tanesi tamam.`, `Tez yazımında ${yazim.length} aşamadan ${yz} tanesi tamam.`);
   if (a.ders >= 7 && a.kredi >= 21) return t('Ders şartını tamamladın! Şimdi sıra fikrini teze dönüştürmekte.', `${ad} ders şartını tamamladı; sıra tez önerisinde.`);
   if (s.adim.konu === 'tamam') return t('Tez konun belli. Önerini yazmaya başlayabilirsin.', `${ilgiEki(ad)} tez konusu belli; öneri aşamasında.`);
-  const devam = s.dersler.filter(r => r.durum === 'aliyor').length;
+  const devam = s.dersler.filter(r => r.durum === 'aliyor' && ['zorunlu', 'secmeli'].includes(kat(s, r.kod).tur)).length;
   if (a.ders > 0 || devam) return t(`7 kredili dersin ${Math.floor(a.ders)} tanesi tamam${devam ? `, ${devam} ders devam ediyor` : ''}.`, `7 kredili dersten ${Math.floor(a.ders)} tamam${devam ? `, ${devam} devam ediyor` : ''}.`);
   return t('İlk adım: bu dönem aldığın dersleri "Ders durumu"ndan ekle.', `${ad} henüz ders eklemedi.`);
 }
