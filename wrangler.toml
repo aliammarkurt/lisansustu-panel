@@ -1,0 +1,32 @@
+# Lisansüstü Panel — Cloudflare Worker yapılandırması
+name = "lisansustu-panel"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+# Panelin adresi (Cloudflare DNS kaydını kendisi oluşturur)
+routes = [
+  { pattern = "panel.aliammarkurt.com", custom_domain = true }
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+[vars]
+APP_URL = "https://panel.aliammarkurt.com"
+MAIL_FROM = "Lisansüstü Panel <panel@aliammarkurt.com>"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "panel-db"
+database_id = "BURAYA_D1_ID"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "panel-dosyalar"
+
+[observability]
+enabled = true

@@ -1,0 +1,13 @@
+{
+  "name": "lisansustu-panel",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tezli yüksek lisans öğrencileri için ders ve tez süreci takip paneli",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.42.0"
+  }
+}
