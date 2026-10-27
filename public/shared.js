@@ -59,7 +59,7 @@ export const PROGRAMS = {
   },
 };
 
-export const TUR_AD = { zorunlu: 'Zorunlu', secmeli: 'Seçmeli', bay: 'Zorunlu (0 kredi)', etik: 'Zorunlu (0 kredi)', seminer: 'Seminer', uad: 'UAD', tez: 'Tez' };
+export const TUR_AD = { zorunlu: 'Zorunlu', secmeli: 'Seçmeli', bay: 'Zorunlu (kredisiz)', etik: 'Zorunlu (kredisiz)', seminer: 'Seminer', uad: 'UAD', tez: 'Tez' };
 export const SONUCLU = ['seminer', 'uad', 'tez']; // başarılı/başarısız değerlendirilenler
 
 export const ADIMLAR = [

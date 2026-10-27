@@ -419,8 +419,8 @@ function derslerHTML(s) {
   ${programDersleriHTML(s, adv)}`;
 }
 const GRUP_SIRA = [
-  ['zorunlu', 'Zorunlu dersler'], ['secmeli', 'Seçmeli dersler'], ['bay', 'Araştırma yöntemleri'], ['etik', 'Araştırma ve yayın etiği'],
-  ['seminer', 'Seminer'], ['uad', 'Uzmanlık alan dersleri'], ['tez', 'Tez çalışması'],
+  [['zorunlu', 'bay', 'etik'], 'Zorunlu dersler'], [['secmeli'], 'Seçmeli dersler'],
+  [['seminer'], 'Seminer'], [['uad'], 'Uzmanlık alan dersleri'],
 ];
 function programDersleriHTML(s, adv) {
   const P = PROGRAMS[s.program];
@@ -445,14 +445,14 @@ function programDersleriHTML(s, adv) {
     } else {
       sag = `<span class="row" style="gap:6px;justify-content:flex-end;flex-wrap:nowrap">${tekrar ? '<span class="muted" style="font-size:12.5px">Tekrar al:</span>' : ''}<button class="btn small" data-a="ders-aliyorum" data-kod="${esc(c.kod)}">Alıyorum</button><button class="btn small" data-a="ekle-ac-kod" data-kod="${esc(c.kod)}">Aldım</button></span>`;
     }
-    return `<div class="crow ${son && !tekrar ? 'alindi' : ''} ${S.ekleKod === c.kod ? 'acik' : ''}"><span class="mono kod">${esc(c.kod)}</span><div style="min-width:0"><div>${esc(c.ad)}</div><div class="muted" style="font-size:12.5px">${c.kredi} kredi · ${c.akts} AKTS</div></div><div class="sag">${sag}</div></div>`;
+    return `<div class="crow ${son && !tekrar ? 'alindi' : ''} ${S.ekleKod === c.kod ? 'acik' : ''}"><span class="mono kod">${esc(c.kod)}</span><div style="min-width:0"><div>${esc(c.ad)}</div><div class="muted" style="font-size:12.5px">${c.kredi} kredi · ${c.akts} AKTS${c.tur === 'bay' || c.tur === 'etik' ? ' · kredisiz, 7 ders sayısına girmez' : ''}</div></div><div class="sag">${sag}</div></div>`;
   };
   const grup = ([tur, baslik]) => {
-    const cs = P.katalog.filter(c => c.tur === tur); if (!cs.length) return '';
+    const cs = P.katalog.filter(c => tur.includes(c.tur)); if (!cs.length) return '';
     const alinan = cs.filter(c => kayit(c.kod).some(r => r.durum === 'aliyor' || r.durum === 'onay' || r.durum === 'tamam' && gecti(r, c))).length;
     let ozet = `${alinan} / ${cs.length} eklendi`;
-    if (tur === 'secmeli' && minSec) ozet = `${alinan} eklendi · en az ${minSec} gerekli`;
-    if (tur === 'zorunlu') ozet = `${alinan} / ${cs.length} eklendi · hepsi gerekli`;
+    if (tur[0] === 'secmeli' && minSec) ozet = `${alinan} eklendi · en az ${minSec} gerekli`;
+    if (tur[0] === 'zorunlu') ozet = `${alinan} / ${cs.length} eklendi · hepsi gerekli`;
     return `<div class="cgrp"><div class="term-h"><span class="eyebrow">${baslik}</span><span class="muted mono" style="font-size:12.5px">${ozet}</span></div>${cs.map(satir).join('')}</div>`;
   };
   return `<section class="panel"><h2>Program dersleri</h2>
