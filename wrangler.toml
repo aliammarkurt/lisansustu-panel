@@ -22,7 +22,7 @@ MAIL_FROM = "Lisansüstü Panel <panel@aliammarkurt.com>"
 [[d1_databases]]
 binding = "DB"
 database_name = "panel-db"
-database_id = "BURAYA_D1_ID"
+database_id = "ddae9d0f-f932-48ca-8177-dc430e00eaa8"
 
 [[r2_buckets]]
 binding = "FILES"
