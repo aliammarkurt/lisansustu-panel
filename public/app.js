@@ -412,6 +412,12 @@ function kisiselHTML(s) {
   ${adv ? `<section class="panel"><h2>Giriş bağlantısı</h2>
     <p class="muted" style="margin:0">${s.davetBekliyor ? 'Öğrenci henüz şifresini belirlemedi. Davet bağlantısının süresi 14 gün; gerekirse yenisini oluşturun.' : 'Öğrenci şifresini unuttuysa 2 saat geçerli bir şifre yenileme bağlantısı oluşturabilirsiniz.'}</p>
     <div class="row"><button class="btn" data-a="baglanti">${s.davetBekliyor ? 'Yeni davet bağlantısı oluştur' : 'Şifre yenileme bağlantısı oluştur'}</button>${s.kvkk ? `<span class="muted" style="font-size:13px">Aydınlatma metni onayı: ${esc(tarihFmt(s.kvkk))}</span>` : ''}</div>
+  </section>
+  <section class="panel" style="border-color:var(--sun)"><h2>Öğrenciyi sil</h2>
+    <p class="muted" style="margin:0">Öğrencinin hesabı, dersleri, tez adımları, yüklediği tüm dosyalar ve yazışmalar <b>kalıcı olarak</b> silinir; geri alınamaz. Mezun olan ya da ayrılan öğrencinin kaydını saklamak istiyorsanız silmek yerine yukarıdan arşivleyin.</p>
+    ${S.silOnay === s.id ? `<div class="field"><label for="sil-onay">Onaylamak için öğrencinin e-posta adresini yazın: <b>${esc(s.eposta)}</b></label><input class="input" id="sil-onay" autocomplete="off"></div>
+      <div class="row"><button class="btn sun" data-a="ogrenci-sil">Kalıcı olarak sil</button><button class="btn" data-a="sil-vazgec">Vazgeç</button></div>`
+      : `<div class="row"><button class="btn" data-a="sil-ac">Öğrenciyi sil…</button></div>`}
   </section>` : ''}`;
 }
 function durumPill(r, c) {
@@ -840,6 +846,14 @@ document.addEventListener('click', async e => {
       case 'hatirlatma-gonder': { const r = await api('/hatirlatmalar/gonder', { method: 'POST', body: {} }); S.hatirlatma = null; toast(`${r.gonderilen} hatırlatma gönderildi`); break; }
       case 'ac': S.viewing = el.dataset.s; S.section = el.dataset.k || 'genel'; scrollTo(0, 0); break;
       case 'ekle-ac': S.ekleAcik = !S.ekleAcik; S.topluAcik = false; break;
+      case 'sil-ac': S.silOnay = s.id; break;
+      case 'sil-vazgec': S.silOnay = null; break;
+      case 'ogrenci-sil': {
+        if (val('sil-onay').trim().toLowerCase() !== s.eposta.toLowerCase()) { toast('E-posta adresi eşleşmiyor', 'Silmek için öğrencinin e-posta adresini aynen yazın.'); return; }
+        await api(`/ogrenciler/${s.id}`, { method: 'DELETE' });
+        S.students = S.students.filter(x => x.id !== s.id); S.silOnay = null; S.viewing = null; S.section = 'ogrenciler';
+        toast(`${s.ad} silindi`); scrollTo(0, 0);
+        break; }
       case 'toplu-ac': S.topluAcik = !S.topluAcik; S.ekleAcik = false; break;
       case 'toplu-kapat': S.topluSonuc = null; break;
       case 'kopyala-toplu': {

@@ -354,6 +354,24 @@ async function route(req, env, ctx, url) {
   if ((m = p.match(/^\/api\/ogrenciler\/([\w-]+)$/))) {
     const sid = m[1];
     if (M === 'GET') { await studentOr404(env, user, sid); return json({ ogrenci: await loadStudent(env, sid) }); }
+    if (M === 'DELETE') {
+      if (!isAdv) fail(403, 'Öğrenciyi yalnızca danışman silebilir.');
+      const st = await studentOr404(env, user, sid);
+      // Önce dosya deposundaki tez dosyaları
+      const keys = (await env.DB.prepare(`SELECT r2_key FROM files WHERE student_id = ?`).bind(sid).all()).results.map(r => r.r2_key);
+      if (keys.length && env.FILES) { for (let i = 0; i < keys.length; i += 500) await env.FILES.delete(keys.slice(i, i + 500)); }
+      await env.DB.batch([
+        'courses', 'files', 'messages', 'reminders',
+      ].map(t => env.DB.prepare(`DELETE FROM ${t} WHERE student_id = ?`).bind(sid)).concat([
+        env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(sid),
+        env.DB.prepare(`DELETE FROM tokens WHERE user_id = ?`).bind(sid),
+        env.DB.prepare(`DELETE FROM students WHERE user_id = ?`).bind(sid),
+        env.DB.prepare(`DELETE FROM users WHERE id = ? AND role = 'ogrenci'`).bind(sid),
+        env.DB.prepare(`UPDATE events SET student_id = NULL, detail = 'silindi' WHERE student_id = ?`).bind(sid),
+      ]));
+      await log(env, null, user.id, 'ogrenci-silindi', st.email);
+      return json({ ok: true });
+    }
   }
 
   if ((m = p.match(/^\/api\/ogrenciler\/([\w-]+)\/baglanti$/)) && M === 'POST') {
