@@ -324,7 +324,15 @@ async function route(req, env, ctx, url) {
           .bind(str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60), b.arsiv ? 1 : 0, sid),
       ]);
     } else {
-      await env.DB.prepare(`UPDATE students SET no = ?, statu = ? WHERE user_id = ?`).bind(str(b.no, 30), str(b.statu, 60), sid).run();
+      // Öğrenci e-posta (giriş adresi) ve arşiv dışındaki her şeyi güncelleyebilir
+      const ad = str(b.ad, 120);
+      if (!ad) fail(400, 'Ad soyad boş olamaz.');
+      if (!PROGRAMS[b.program] || !KAYIT_DONEMLERI.includes(b.kayit)) fail(400, 'Program ve kayıt dönemi geçersiz.');
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE users SET ad = ? WHERE id = ?`).bind(ad, sid),
+        env.DB.prepare(`UPDATE students SET no = ?, program = ?, kayit = ?, donem = ?, danisman_donem = ?, statu = ? WHERE user_id = ?`)
+          .bind(str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60), sid),
+      ]);
     }
     return json({ ok: true });
   }

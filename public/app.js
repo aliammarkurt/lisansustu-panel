@@ -355,15 +355,15 @@ function kisiselHTML(s) {
   const f = (id, lab, val, type = 'text', ro = false) => `<div class="field"><label for="${id}">${lab}</label><input class="input" id="${id}" type="${type}" value="${esc(val)}" ${ro ? 'readonly' : ''}></div>`;
   const sel = (id, lab, opts, val, ro) => `<div class="field"><label for="${id}">${lab}</label><select class="input" id="${id}" ${ro ? 'disabled' : ''}>${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(val) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>`;
   return `<section class="panel"><h2>Kişisel bilgiler</h2>
-    <p class="muted" style="margin:0">Bu bilgiler resmî formlara otomatik aktarılır. T.C. kimlik numarası ve posta adresi sistemde tutulmaz; yalnızca ilgili formu hazırlarken tarayıcında girilir.${adv ? '' : ' Ad, e-posta, program ve yarıyıl bilgilerini danışmanın günceller.'}</p>
+    <p class="muted" style="margin:0">Bu bilgiler resmî formlara otomatik aktarılır. T.C. kimlik numarası ve posta adresi sistemde tutulmaz; yalnızca ilgili formu hazırlarken tarayıcında girilir.${adv ? '' : ' Yeni döneme geçtiğinde "Şu anki yarıyıl" bilgisini güncellemeyi unutma. E-posta adresin giriş için kullanıldığından onu yalnızca danışmanın değiştirebilir.'}</p>
     <div class="grid2" style="gap:14px">
-      ${f('k-ad', 'Ad soyad', s.ad, 'text', !adv)}${f('k-no', 'Öğrenci numarası', s.no)}
+      ${f('k-ad', 'Ad soyad', s.ad)}${f('k-no', 'Öğrenci numarası', s.no)}
       ${f('k-eposta', 'E-posta (giriş adresi)', s.eposta, 'email', !adv)}
-      ${sel('k-kayit', 'Kayıt dönemi', KAYIT_DONEMLERI.map(x => [x, x]), s.kayit, !adv)}
-      ${sel('k-program', 'Program', Object.entries(PROGRAMS).map(([k, v]) => [k, v.ad]), s.program, !adv)}
+      ${sel('k-kayit', 'Kayıt dönemi', KAYIT_DONEMLERI.map(x => [x, x]), s.kayit)}
+      ${sel('k-program', 'Program', Object.entries(PROGRAMS).map(([k, v]) => [k, v.ad]), s.program)}
       ${f('k-abd', 'Anabilim dalı', P.abd, 'text', true)}
-      ${sel('k-donem', 'Şu anki yarıyıl', [1, 2, 3, 4, 5, 6, 7, 8].map(n => [n, n + '. yarıyıl']), s.donem, !adv)}
-      ${sel('k-ddonem', 'Danışmanın atandığı yarıyıl', [1, 2, 3, 4].map(n => [n, n + '. yarıyıl']), s.danismanDonem, !adv)}
+      ${sel('k-donem', 'Şu anki yarıyıl', [1, 2, 3, 4, 5, 6, 7, 8].map(n => [n, n + '. yarıyıl']), s.donem)}
+      ${sel('k-ddonem', 'Danışmanın atandığı yarıyıl', [1, 2, 3, 4].map(n => [n, n + '. yarıyıl']), s.danismanDonem)}
       ${f('k-statu', 'Statü', s.statu)}${f('k-dan', 'Danışman', DANISMAN, 'text', true)}
     </div>
     ${adv ? `<label style="display:flex;gap:8px;align-items:center;font-size:14px"><input type="checkbox" id="k-arsiv" ${s.arsiv ? 'checked' : ''}> Arşivle (mezun oldu ya da ayrıldı; listede en alta iner, onay kuyruğundan çıkar)</label>` : ''}
@@ -752,8 +752,8 @@ document.addEventListener('click', async e => {
       case 'kaydet-kisisel': {
         const b = isAdv()
           ? { ad: val('k-ad'), eposta: val('k-eposta'), no: val('k-no'), program: val('k-program'), kayit: val('k-kayit'), donem: +val('k-donem'), danismanDonem: +val('k-ddonem'), statu: val('k-statu'), arsiv: document.getElementById('k-arsiv')?.checked }
-          : { no: val('k-no'), statu: val('k-statu') };
-        await api(`/ogrenciler/${s.id}/profil`, { method: 'PUT', body: b }); await yenile(s.id); toast('Kişisel bilgiler kaydedildi');
+          : { ad: val('k-ad'), no: val('k-no'), program: val('k-program'), kayit: val('k-kayit'), donem: +val('k-donem'), danismanDonem: +val('k-ddonem'), statu: val('k-statu') };
+        await api(`/ogrenciler/${s.id}/profil`, { method: 'PUT', body: b }); if (!isAdv()) S.ben.ad = b.ad; await yenile(s.id); toast('Kişisel bilgiler kaydedildi');
         break; }
       case 'kaydet-tez': {
         const t = JSON.parse(JSON.stringify(s.tez));
