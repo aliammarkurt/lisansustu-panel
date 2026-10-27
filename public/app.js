@@ -58,9 +58,11 @@ function gecti(r, c) {
   if (SONUCLU.includes(c.tur) || r.not == null) return r.sonuc === 'basarili';
   return r.not >= 70 && (r.final == null || r.final >= 70);
 }
+// Alınmakta olan ders yarım sayılır; sonucu girilip geçilen ders tam sayılır.
 function agirlik(r, c, pw) {
-  if (!gecti(r, c)) return 0;
-  return r.durum === 'tamam' ? 1 : r.durum === 'onay' ? pw : 0;
+  if (r.durum === 'aliyor') return pw;
+  if (r.durum === 'duzeltme') return 0;
+  return gecti(r, c) ? 1 : 0;
 }
 function adimDeger(s, k, pw) { const d = s.adim[k]; return d === 'tamam' ? 1 : d === 'onay' ? pw : 0; }
 function hesapla(s, pw) {
@@ -120,12 +122,10 @@ function mesaj(p) {
 function siradaki(s) {
   const a = hesapla(s, 0);
   if (a.kredi < 21 || a.ders < 7) {
-    const bek = s.dersler.filter(r => r.durum === 'onay').length;
     const kalanD = Math.max(0, 7 - Math.floor(a.ders)), kalanK = Math.max(0, 21 - a.kredi);
     const alinan = s.dersler.filter(r => r.durum === 'aliyor' && ['zorunlu', 'secmeli'].includes(kat(s, r.kod).tur)).length;
     let t = `Kredili ders şartına ${kalanK} kredi ve ${kalanD} ders kaldı.`;
     if (!s.dersler.length) t = 'Bu dönem aldığın dersleri "Ders durumu" bölümünden ekleyerek başla. Kredili ders şartı: en az 21 kredi ve 7 ders.';
-    else if (bek) t += ` ${bek} dersin danışman onayında.`;
     else if (alinan) t += ` Bu dönem aldığın ${alinan} ders tamamlanınca bu kısım büyük ölçüde dolacak.`;
     if (s.program === 'pdr' && a.ders >= 4 && kalanD > 0) t += ' PDR programında 2 zorunlu derse ek olarak en az 5 seçmeli gerekiyor.';
     return { b: 'Kredili dersler', t, sec: 'dersler' };
@@ -171,7 +171,6 @@ function bekleyenler() {
   const L = [];
   for (const s of S.students) {
     if (s.arsiv) continue;
-    s.dersler.forEach(r => { if (r.durum === 'onay') { const c = kat(s, r.kod); L.push({ s, tip: 'ders', id: r.id, ad: `${c.kod} ${c.ad}`, ek: `${r.donem}. yarıyıl · ${r.not != null ? 'Not ' + r.not + (r.final != null ? ' · Final ' + r.final : '') : 'Başarılı'} · ${c.kredi} kredi / ${c.akts} AKTS` }); } });
     for (const k in s.adim) if (s.adim[k] === 'onay') L.push({ s, tip: 'adim', k, ad: ADIM[k]?.ad || k, ek: `Tez süreci · gönderim ${tarihFmt(s.adimTarih[k]) || ''}` });
     s.dosyalar.forEach(d => { if (!d.yorum) L.push({ s, tip: 'dosya', id: d.id, ad: `Yeni tez sürümü v${d.v}`, ek: `${d.ad} · ${tarihFmt(d.tarih)}` }); });
   }
@@ -326,7 +325,7 @@ function heroHTML(s) {
     <p class="lead">${esc(mesaj(pct))}</p>
     ${segBar(p)}
     <div class="flags">${BAYRAKLAR.map(b => `<div class="flag ${done(b.k) ? 'done' : ''}" style="left:${b.at}%"><span>${done(b.k) ? '✓ ' : ''}${b.ad}</span></div>`).join('')}</div>
-    <div class="legend"><span><i style="background:var(--accent)"></i>Onaylandı</span><span><i style="background:repeating-linear-gradient(-45deg,var(--sun) 0 4px,var(--sun-soft) 4px 7px)"></i>Danışman onayında (yarısı sayılır)</span>${p.pend > 0.05 ? `<span class="mono">%${fmt(p.pend)} onay bekliyor</span>` : ''}</div>
+    <div class="legend"><span><i style="background:var(--accent)"></i>Tamamlandı</span><span><i style="background:repeating-linear-gradient(-45deg,var(--sun) 0 4px,var(--sun-soft) 4px 7px)"></i>Devam ediyor ya da danışman onayında (yarısı sayılır)</span>${p.pend > 0.05 ? `<span class="mono">%${fmt(p.pend)} yolda</span>` : ''}</div>
     <div class="next"><div class="dot">→</div><div><span class="eyebrow">${isAdv() ? 'Sıradaki adım' : 'Sıradaki adımın'}</span><b>${esc(nx.b)}</b><span class="muted" style="font-size:14px">${esc(nx.t)}</span></div><button class="btn small" data-a="nav" data-k="${nx.sec}">Git</button></div>
   </section>`;
 }
@@ -377,9 +376,8 @@ function kisiselHTML(s) {
 }
 function durumPill(r, c) {
   if (r.durum === 'aliyor') return '<span class="pill go">Alıyor</span>';
-  if (r.durum === 'duzeltme') return '<span class="pill fix">Düzeltme</span>';
+  if (r.durum === 'duzeltme') return '<span class="pill fix">Düzeltme istendi</span>';
   if (!gecti(r, c)) return '<span class="pill fix">Sayılmıyor</span>';
-  if (r.durum === 'onay') return '<span class="pill wait">Onayda</span>';
   return '<span class="pill ok">Tamam</span>';
 }
 function notForm(c, id) {
@@ -392,18 +390,11 @@ function derslerHTML(s) {
   const islem = (r, c) => {
     if (S.notEdit === r.id) return notForm(c, r.id);
     const L = [];
-    if (adv) {
-      if (r.durum === 'onay' && gecti(r, c)) L.push(`<button class="btn small primary" data-a="ders-islem" data-id="${r.id}" data-i="onayla">Onayla</button>`);
-      if (r.durum === 'onay') L.push(`<button class="btn small" data-a="ders-islem" data-id="${r.id}" data-i="duzeltme">Düzeltme</button>`);
-      if (r.durum === 'tamam') L.push(`<button class="btn small" data-a="ders-islem" data-id="${r.id}" data-i="geri">Onayı geri al</button>`);
-      L.push(`<button class="btn small" data-a="not-ac" data-id="${r.id}">Sonuç</button>`);
-      L.push(`<button class="btn small" data-a="ders-sil" data-id="${r.id}" aria-label="Sil">Sil</button>`);
-    } else {
-      if (r.durum === 'aliyor') L.push(`<button class="btn small" data-a="not-ac" data-id="${r.id}">Sonuç gir</button>`);
-      if (r.durum === 'duzeltme') L.push(`<button class="btn small sun" data-a="not-ac" data-id="${r.id}">Düzelt</button>`);
-      if (r.durum === 'onay') L.push(`<button class="btn small" data-a="not-ac" data-id="${r.id}">Değiştir</button>`);
-      if (['aliyor', 'duzeltme'].includes(r.durum)) L.push(`<button class="btn small" data-a="ders-sil" data-id="${r.id}">Sil</button>`);
-    }
+    if (r.durum === 'aliyor') L.push(`<button class="btn small primary" data-a="not-ac" data-id="${r.id}">Not gir</button>`);
+    else if (r.durum === 'duzeltme') L.push(`<button class="btn small sun" data-a="not-ac" data-id="${r.id}">Düzelt</button>`);
+    else L.push(`<button class="btn small" data-a="not-ac" data-id="${r.id}">Değiştir</button>`);
+    if (adv && r.durum === 'tamam') L.push(`<button class="btn small" data-a="ders-islem" data-id="${r.id}" data-i="duzeltme">Düzeltme iste</button>`);
+    L.push(`<button class="btn small" data-a="ders-sil" data-id="${r.id}" aria-label="Sil">Sil</button>`);
     return `<span class="row" style="flex-wrap:nowrap;gap:6px">${L.join('')}</span>`;
   };
   const tbl = t => `<div class="term-h"><h3>${t}. yarıyıl</h3><span class="muted mono" style="font-size:13px">${s.dersler.filter(r => r.donem === t).reduce((x, r) => x + kat(s, r.kod).akts, 0)} AKTS</span></div>
@@ -422,7 +413,7 @@ function derslerHTML(s) {
       <div class="stat"><span class="eyebrow">Kredili ders (en az 7)</span><span class="v mono">${fmt(a.ders)}</span><div class="meter"><i style="width:${Math.min(100, a.ders / 7 * 100)}%"></i></div></div>
       <div class="stat"><span class="eyebrow">AKTS (en az 120)</span><span class="v mono">${fmt(a.akts)}</span><div class="meter"><i style="width:${Math.min(100, a.akts / 120 * 100)}%"></i></div></div>
     </div>
-    <p class="muted" style="margin:0;font-size:13.5px">Bilimsel Araştırma Yöntemleri ve Bilimsel Etik zorunludur ama 7 ders sayısına girmez. Seminer, UAD ve tez çalışması başarılı/başarısız olarak değerlendirilir. Bir dersin sayılması için başarı notu ve yarıyıl sonu/bütünleme notu en az 70 olmalı.</p>
+    <p class="muted" style="margin:0;font-size:13.5px">Şu an aldığın dersler çubukta yarım sayılır; notunu girdiğinde ders yeşile döner ve tam sayılır. Bilimsel Araştırma Yöntemleri ve Bilimsel Etik zorunludur ama 7 ders sayısına girmez. Seminer ve UAD başarılı/başarısız olarak değerlendirilir. Bir dersin sayılması için başarı notu ve yarıyıl sonu/bütünleme notu en az 70 olmalı.</p>
     ${terms.length ? terms.map(tbl).join('') : '<p class="muted">Henüz ders eklenmedi. Aşağıdaki program dersleri listesinden aldığın derslere tıklayarak başla.</p>'}
   </section>
   ${programDersleriHTML(s, adv)}`;
@@ -443,16 +434,16 @@ function programDersleriHTML(s, adv) {
     if (S.ekleKod === c.kod) {
       const sonuclu = SONUCLU.includes(c.tur);
       sag = `<div class="row" style="gap:8px;justify-content:flex-end">
-        <select class="input" id="e-donem" aria-label="Yarıyıl" style="width:auto">${[1, 2, 3, 4, 5, 6].map(n => `<option ${n === s.donem ? 'selected' : ''} value="${n}">${n}. yarıyıl</option>`).join('')}</select>
-        ${sonuclu ? `<label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" id="e-basarili"> Başarılı</label>`
+        <span class="muted" style="font-size:13px">Aldığım yarıyıl</span>
+        <select class="input" id="e-donem" aria-label="Yarıyıl" style="width:auto">${[1, 2, 3, 4, 5, 6].map(n => `<option ${n === Math.max(1, s.donem - 1) ? 'selected' : ''} value="${n}">${n}. yarıyıl</option>`).join('')}</select>
+        ${sonuclu ? `<span class="pill ok">Başarılı</span>`
           : `<input class="input" id="e-not" type="number" min="0" max="100" placeholder="Not" aria-label="Başarı notu" style="width:76px"><input class="input" id="e-final" type="number" min="0" max="100" placeholder="Final" aria-label="Yarıyıl sonu notu" style="width:76px">`}
-        ${adv ? '<label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="e-onayli"> Onaylı</label>' : ''}
         <button class="btn small primary" data-a="ders-ekle" data-kod="${esc(c.kod)}">Kaydet</button><button class="btn small" data-a="ekle-kapat">Vazgeç</button></div>
-        <div class="muted" style="font-size:12.5px;text-align:right">${sonuclu ? 'Sonuç belli değilse "Başarılı"yı işaretlemeden kaydet; ders "alıyor" olarak eklenir.' : 'Not henüz açıklanmadıysa boş bırak; ders "alıyor" olarak eklenir.'}</div>`;
+        ${sonuclu ? '' : '<div class="muted" style="font-size:12.5px;text-align:right">Başarı notunu ve yarıyıl sonu (final ya da bütünleme) notunu gir.</div>'}`;
     } else if (son && !tekrar) {
       sag = `<span class="row" style="gap:8px;justify-content:flex-end"><span class="muted" style="font-size:13px">${son.donem}. yarıyıl</span>${durumPill(son, c)}</span>`;
     } else {
-      sag = `<button class="btn small ${tekrar ? 'sun' : ''}" data-a="ekle-ac-kod" data-kod="${esc(c.kod)}">${tekrar ? 'Tekrar al' : '+ Aldım / alıyorum'}</button>`;
+      sag = `<span class="row" style="gap:6px;justify-content:flex-end;flex-wrap:nowrap">${tekrar ? '<span class="muted" style="font-size:12.5px">Tekrar al:</span>' : ''}<button class="btn small" data-a="ders-aliyorum" data-kod="${esc(c.kod)}">Alıyorum</button><button class="btn small" data-a="ekle-ac-kod" data-kod="${esc(c.kod)}">Aldım</button></span>`;
     }
     return `<div class="crow ${son && !tekrar ? 'alindi' : ''} ${S.ekleKod === c.kod ? 'acik' : ''}"><span class="mono kod">${esc(c.kod)}</span><div style="min-width:0"><div>${esc(c.ad)}</div><div class="muted" style="font-size:12.5px">${c.kredi} kredi · ${c.akts} AKTS</div></div><div class="sag">${sag}</div></div>`;
   };
@@ -465,7 +456,7 @@ function programDersleriHTML(s, adv) {
     return `<div class="cgrp"><div class="term-h"><span class="eyebrow">${baslik}</span><span class="muted mono" style="font-size:12.5px">${ozet}</span></div>${cs.map(satir).join('')}</div>`;
   };
   return `<section class="panel"><h2>Program dersleri</h2>
-    <p class="muted" style="margin:0">${esc(P.ad)} öğretim planındaki dersler. ${adv ? 'Öğrenci adına ders ekleyebilirsiniz.' : 'Aldığın ya da şu an aldığın derse tıkla; notun açıklanınca girersin, ders danışman onayına gider ve çubukta yarım dolar.'}</p>
+    <p class="muted" style="margin:0">${esc(P.ad)} öğretim planındaki dersler. ${adv ? 'Öğrenci adına ders ekleyebilirsiniz.' : 'Bu dönem aldığın ders için "Alıyorum"a, daha önce tamamladığın ders için "Aldım"a tıkla. Alınan dersler çubukta yarım sayılır; notu girince ders yeşile döner.'}</p>
     ${GRUP_SIRA.map(grup).join('')}
     <p class="muted" style="margin:0;font-size:13px">Lisans programından ya da başka bir üniversiteden ders aldıysan danışmanına yaz.</p>
   </section>`;
@@ -773,15 +764,20 @@ document.addEventListener('click', async e => {
         break; }
       case 'ekle-ac-kod': S.ekleKod = el.dataset.kod; break;
       case 'ekle-kapat': S.ekleKod = null; break;
+      case 'ders-aliyorum': {
+        const kod = el.dataset.kod;
+        await islemYap(s, () => api(`/ogrenciler/${s.id}/dersler`, { method: 'POST', body: { kod, donem: s.donem, kaynak: 'program' } }),
+          ['Ders eklendi', `${s.donem}. yarıyıl · çubukta yarım sayılıyor. Notun açıklanınca "Not gir" ile gir.`]);
+        break; }
       case 'ders-ekle': {
         const kod = el.dataset.kod, c = kat(s, kod), sonuclu = SONUCLU.includes(c.tur);
-        const b = { kod, donem: +val('e-donem'), kaynak: 'program', not: sonuclu ? '' : val('e-not'), final: sonuclu ? '' : val('e-final'), sonuc: sonuclu && document.getElementById('e-basarili')?.checked ? 'basarili' : null, durum: document.getElementById('e-onayli')?.checked ? 'tamam' : undefined };
+        const b = { kod, donem: +val('e-donem'), kaynak: 'program', not: sonuclu ? '' : val('e-not'), final: sonuclu ? '' : val('e-final'), sonuc: sonuclu ? 'basarili' : null };
+        if (!sonuclu && b.not === '') { toast('Başarı notunu gir', 'Henüz notun yoksa "Alıyorum"u kullan.'); return; }
         await islemYap(s, () => api(`/ogrenciler/${s.id}/dersler`, { method: 'POST', body: b }));
         S.ekleKod = null;
-        const sonucVar = b.not !== '' || b.sonuc;
         const r = { not: b.not === '' ? null : +b.not, final: b.final === '' ? null : +b.final, sonuc: b.sonuc };
-        if (sonucVar && !gecti(r, c)) toast('Ders eklendi ama sayılmayacak', 'Başarı notu ve yarıyıl sonu notu en az 70 olmalı. Seçmeliyse başka bir seçmeliyle telafi edebilirsin.');
-        else toast(sonucVar ? (isAdv() ? 'Ders eklendi' : 'Ders eklendi ve onaya gönderildi') : 'Ders "alıyor" olarak eklendi', sonucVar || isAdv() ? '' : 'Notun açıklanınca "Sonuç gir" ile gir.');
+        if (!gecti(r, c)) toast('Ders eklendi ama sayılmayacak', 'Başarı notu ve yarıyıl sonu notu en az 70 olmalı. Seçmeliyse başka bir seçmeliyle telafi edebilirsin.');
+        else toast('Ders tamamlandı olarak eklendi');
         break; }
       case 'not-ac': S.notEdit = +el.dataset.id; break;
       case 'not-kapat': S.notEdit = null; break;
@@ -793,7 +789,7 @@ document.addEventListener('click', async e => {
         S.notEdit = null;
         const yeni = cur().dersler.find(x => x.id === r.id);
         if (yeni && !gecti(yeni, c)) toast('Sonuç kaydedildi ama ders sayılmayacak', 'Başarı notu ve yarıyıl sonu notu en az 70 olmalı.');
-        else toast(isAdv() ? 'Sonuç kaydedildi' : 'Danışman onayına gönderildi', isAdv() ? '' : 'Çubukta bu ders yarım doldu.');
+        else toast('Ders tamamlandı', 'Çubukta artık tam sayılıyor.');
         break; }
       case 'ders-sil': {
         if (el.dataset.onay !== '1') { el.dataset.onay = '1'; el.textContent = 'Emin misin?'; el.classList.add('sun'); setTimeout(() => { if (el.isConnected) { el.dataset.onay = ''; el.textContent = 'Sil'; el.classList.remove('sun'); } }, 3000); return; }
@@ -802,7 +798,7 @@ document.addEventListener('click', async e => {
       case 'ders-islem': {
         const n = el.dataset.n, not = n != null ? val('qn-' + n).trim() : '';
         await islemYap(s, () => api(`/ogrenciler/${s.id}/dersler/${el.dataset.id}`, { method: 'PUT', body: { islem: el.dataset.i, not } }),
-          el.dataset.i === 'onayla' ? ['Onaylandı', mailNot()] : el.dataset.i === 'duzeltme' ? ['Düzeltme istendi', mailNot()] : ['Onay geri alındı']);
+          el.dataset.i === 'duzeltme' ? ['Düzeltme istendi', mailNot()] : ['Güncellendi']);
         break; }
       case 'adim': {
         const n = el.dataset.n, not = n != null ? val('qn-' + n).trim() : '';

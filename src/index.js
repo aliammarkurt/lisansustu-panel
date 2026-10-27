@@ -22,6 +22,8 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS idx_courses_s ON courses(student_id)`,
   `CREATE INDEX IF NOT EXISTS idx_files_s ON files(student_id)`,
   `CREATE INDEX IF NOT EXISTS idx_msg_s ON messages(student_id)`,
+  // Dersler artık not girilince doğrudan tamamlanıyor; eski 'onay' kayıtlarını dönüştür
+  `UPDATE courses SET durum = 'tamam' WHERE durum = 'onay'`,
 ];
 let schemaReady = false;
 async function ensureSchema(env) {
@@ -354,10 +356,10 @@ async function route(req, env, ctx, url) {
     const notu = grade(b.not), final = grade(b.final);
     const sonuc = SONUCLU.includes(c.tur) && b.sonuc === 'basarili' ? 'basarili' : null;
     const sonucVar = notu !== null || sonuc;
-    const durum = isAdv && b.durum === 'tamam' && sonucVar ? 'tamam' : sonucVar ? 'onay' : 'aliyor';
+    const durum = sonucVar ? 'tamam' : 'aliyor';
     await env.DB.prepare(`INSERT INTO courses (student_id, kod, donem, durum, notu, final, sonuc, kaynak, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`)
       .bind(sid, c.kod, donem, durum, notu, final, sonuc, kaynak, now()).run();
-    if (!isAdv && durum === 'onay') notify(ctx, env, advisorEmail(env), `${s.ad}: onay bekleyen ders`, `${s.ad}, ${c.kod} ${c.ad} dersinin sonucunu girdi ve onayına gönderdi.`);
+    if (!isAdv && sonucVar) notify(ctx, env, advisorEmail(env), `${s.ad}: ders sonucu girildi`, `${s.ad}, ${c.kod} ${c.ad} dersinin sonucunu girdi${notu !== null ? ` (not: ${notu}${final !== null ? ', final: ' + final : ''})` : ' (başarılı)'}.`);
     return json({ ok: true });
   }
   if ((m = p.match(/^\/api\/ogrenciler\/([\w-]+)\/dersler\/(\d+)$/))) {
@@ -366,7 +368,6 @@ async function route(req, env, ctx, url) {
     if (!r) fail(404, 'Ders kaydı bulunamadı.');
     const c = PROGRAMS[s.program].katalog.find(x => x.kod === r.kod) || { kod: r.kod, ad: r.kod, tur: 'secmeli' };
     if (M === 'DELETE') {
-      if (!isAdv && !['aliyor', 'duzeltme'].includes(r.durum)) fail(403, 'Onaylanmış ya da onayda olan dersi yalnızca danışman silebilir.');
       await env.DB.prepare(`DELETE FROM courses WHERE id = ?`).bind(cid).run();
       return json({ ok: true });
     }
@@ -389,15 +390,14 @@ async function route(req, env, ctx, url) {
         return json({ ok: true });
       }
       // Sonuç girme / düzeltme
-      if (!isAdv && r.durum === 'tamam') fail(403, 'Onaylanmış dersi değiştirmek için danışmanına yaz.');
       const notu = grade(b.not), final = grade(b.final);
       const sonuc = SONUCLU.includes(c.tur) && b.sonuc === 'basarili' ? 'basarili' : null;
       const donem = intIn(b.donem, 1, 12) || r.donem;
       const kaynak = ['program', 'lisans', 'dis'].includes(b.kaynak) ? b.kaynak : r.kaynak;
       const sonucVar = notu !== null || sonuc;
-      const durum = isAdv ? (b.durum === 'tamam' && sonucVar ? 'tamam' : sonucVar ? 'onay' : 'aliyor') : (sonucVar ? 'onay' : 'aliyor');
+      const durum = sonucVar ? 'tamam' : 'aliyor';
       await env.DB.prepare(`UPDATE courses SET notu=?, final=?, sonuc=?, donem=?, kaynak=?, durum=?, updated_at=? WHERE id=?`).bind(notu, final, sonuc, donem, kaynak, durum, now(), cid).run();
-      if (!isAdv && durum === 'onay') notify(ctx, env, advisorEmail(env), `${s.ad}: onay bekleyen ders`, `${s.ad}, ${c.kod} ${c.ad} dersinin sonucunu girdi ve onayına gönderdi.`);
+      if (!isAdv && sonucVar) notify(ctx, env, advisorEmail(env), `${s.ad}: ders sonucu girildi`, `${s.ad}, ${c.kod} ${c.ad} dersinin sonucunu girdi${notu !== null ? ` (not: ${notu}${final !== null ? ', final: ' + final : ''})` : ' (başarılı)'}.`);
       return json({ ok: true });
     }
   }
