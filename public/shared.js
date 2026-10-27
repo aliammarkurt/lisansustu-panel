@@ -31,8 +31,6 @@ export const PROGRAMS = {
       C('UZY2001', 'Uzmanlık Alan Dersi II', 0, 4, 'uad'),
       C('UZY3001', 'Uzmanlık Alan Dersi III', 0, 4, 'uad'),
       C('UZY4001', 'Uzmanlık Alan Dersi IV', 0, 4, 'uad'),
-      C('YTÇ3001', 'Tez Çalışması I', 0, 26, 'tez'),
-      C('YTÇ4001', 'Tez Çalışması II', 0, 26, 'tez'),
     ],
   },
   aed: {
