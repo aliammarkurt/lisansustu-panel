@@ -27,6 +27,7 @@ const today = () => new Date().toLocaleDateString('tr-TR', { day: 'numeric', mon
 async function api(path, opts = {}) {
   const init = { method: opts.method || 'GET', headers: { 'X-LP': '1' }, credentials: 'same-origin' };
   if (opts.body instanceof FormData) init.body = opts.body;
+  else if (opts.body instanceof Blob) { init.body = opts.body; init.headers['Content-Type'] = opts.body.type; }
   else if (opts.body !== undefined) { init.body = JSON.stringify(opts.body); init.headers['Content-Type'] = 'application/json'; }
   const r = await fetch('/api' + path, init);
   let data = {};
@@ -213,6 +214,22 @@ function bekleyenler() {
   return L;
 }
 
+/* ======================== PROFİL FOTOĞRAFI ======================== */
+function basHarf(ad) { return (ad || '?').trim().split(/\s+/).filter(Boolean).slice(0, 2).map(x => x[0].toLocaleUpperCase('tr')).join(''); }
+function avatar(s, boy = 36) {
+  const st = `width:${boy}px;height:${boy}px;font-size:${Math.round(boy * 0.38)}px`;
+  return s.foto ? `<img class="av" src="/api/foto/${s.id}?v=${s.foto}" alt="" style="${st}" loading="lazy">` : `<span class="av" style="${st}" aria-hidden="true">${esc(basHarf(s.ad))}</span>`;
+}
+// Seçilen görseli ortadan kare kırpıp 400×400 JPEG'e küçültür
+async function fotoHazirla(dosya) {
+  let img;
+  try { img = await createImageBitmap(dosya); } catch { throw new Error('Bu görsel açılamadı. JPEG ya da PNG bir fotoğraf seç.'); }
+  const k = Math.min(img.width, img.height), c = document.createElement('canvas');
+  c.width = c.height = 400;
+  c.getContext('2d').drawImage(img, (img.width - k) / 2, (img.height - k) / 2, k, k, 0, 0, 400, 400);
+  return await new Promise(r => c.toBlob(r, 'image/jpeg', 0.86));
+}
+
 /* ======================== İKONLAR ======================== */
 const ICON = {
   genel: '<path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/>',
@@ -238,7 +255,7 @@ const OGR_MENU = [['genel', 'Genel bakış'], ['kisisel', 'Kişisel bilgiler'], 
 
 /* ======================== GİRİŞ EKRANLARI ======================== */
 const KVKK = `Bu panel, Mersin Üniversitesi Eğitim Bilimleri Enstitüsü'nde Dr. Öğr. Üyesi Ali Ammar Kurt danışmanlığında tezli yüksek lisans yapan öğrencilerin ders ve tez süreçlerini takip etmek için kullanılır.
-Panelde yalnızca adın, e-posta adresin, öğrenci numaran, programın, kayıt dönemin, ders sonuçların, tez bilgilerin (başlık, komisyon, jüri, sınav bilgileri), yüklediğin tez dosyaları ve danışmanınla yazışmaların tutulur. T.C. kimlik numarası ve posta adresi sistemde saklanmaz; gerektiğinde yalnızca formu hazırlarken tarayıcında kullanılır.
+Panelde yalnızca adın, e-posta adresin, öğrenci numaran, programın, kayıt dönemin, ders sonuçların, tez bilgilerin (başlık, komisyon, jüri, sınav bilgileri), yüklediğin tez dosyaları, isteğe bağlı profil fotoğrafın ve danışmanınla yazışmaların tutulur. T.C. kimlik numarası ve posta adresi sistemde saklanmaz; gerektiğinde yalnızca formu hazırlarken tarayıcında kullanılır.
 Bu bilgileri yalnızca sen ve danışmanın görebilir. Veriler, 6698 sayılı Kişisel Verilerin Korunması Kanunu kapsamında, tez danışmanlığı sürecinin yürütülmesi amacıyla ve yalnızca bu süreç boyunca işlenir; Cloudflare altyapısında şifreli bağlantıyla saklanır ve üçüncü kişilerle paylaşılmaz. Bildirim e-postaları bir e-posta gönderim hizmeti aracılığıyla iletilir.
 Mezuniyetin ya da programdan ayrılmanın ardından danışmanından verilerinin silinmesini isteyebilirsin. Sorular için: aliammarkurt@mersin.edu.tr`;
 
@@ -322,7 +339,7 @@ function render() {
     <header class="topbar">
       <button class="iconbtn" data-a="toggle" aria-label="Menüyü aç/kapat">${ic('menu', 18)}</button>
       <div class="brand"><span class="mark">LP</span><span>Lisansüstü Panel</span></div>
-      <div class="who"><span class="muted name">${esc(S.ben.ad)}</span><span class="pill ${adv ? 'go' : 'ok'}">${adv ? 'Danışman' : 'Öğrenci'}</span>${temaBtn()}</div>
+      <div class="who">${!adv && s ? avatar(s, 30) : ''}<span class="muted name">${esc(S.ben.ad)}</span><span class="pill ${adv ? 'go' : 'ok'}">${adv ? 'Danışman' : 'Öğrenci'}</span>${temaBtn()}</div>
     </header>
     <div class="body ${S.collapsed ? 'collapsed' : ''} ${S.mopen ? 'mopen' : ''}">
       <nav class="side" aria-label="Menü">${nav}</nav>
@@ -343,7 +360,7 @@ function anaIcerik() {
   const s = cur();
   if (!s) return `<section class="panel"><h2>Kayıt bulunamadı</h2><p class="muted">Öğrenci kaydına ulaşılamadı. Danışmanınla iletişime geç.</p></section>`;
   let h = '';
-  if (adv) h += `<div class="viewing"><b>${esc(s.ad)}</b> öğrencisinin panelini danışman olarak görüyorsunuz.<button class="btn small" data-a="nav" data-k="ogrenciler" style="margin-left:auto">← Öğrencilerim</button></div>`;
+  if (adv) h += `<div class="viewing">${avatar(s, 28)}<b>${esc(s.ad)}</b> öğrencisinin panelini danışman olarak görüyorsunuz.<button class="btn small" data-a="nav" data-k="ogrenciler" style="margin-left:auto">← Öğrencilerim</button></div>`;
   if (S.celebrate) h += `<div class="celebrate">${esc(S.celebrate)}</div>`;
   h += heroHTML(s);
   const f = { genel: genelHTML, kisisel: kisiselHTML, dersler: derslerHTML, tez: tezHTML, dosyalar: dosyalarHTML, belgeler: belgelerHTML, mezuniyet: mezuniyetHTML, notlar: notlarHTML }[S.section] || genelHTML;
@@ -394,6 +411,8 @@ function kisiselHTML(s) {
   const sel = (id, lab, opts, val, ro) => `<div class="field"><label for="${id}">${lab}</label><select class="input" id="${id}" ${ro ? 'disabled' : ''}>${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(val) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>`;
   const ilk = !adv && !s.profilTamam;
   return `${ilk ? `<section class="celebrate" style="text-align:left">Hoş geldin! Başlamadan önce kişisel bilgilerini tamamla: ad soyad, öğrenci numarası, program, kayıt dönemi ve şu anki yarıyıl. Bu bilgiler ilerleme hesabında ve resmî formlarda kullanılacak.</section>` : ''}<section class="panel"><h2>Kişisel bilgiler</h2>
+    <div class="row" style="gap:16px">${avatar(s, 84)}<div style="display:grid;gap:6px"><b style="font-weight:600">Profil fotoğrafı</b><span class="muted" style="font-size:13px">İsteğe bağlı. Fotoğraf kare olarak kırpılır; yalnızca ${adv ? 'öğrenci ve siz' : 'sen ve danışmanın'} görebilir.</span>
+      <div class="row" style="gap:8px"><label class="btn small" for="foto-up">${s.foto ? 'Değiştir' : 'Fotoğraf yükle'}</label><input id="foto-up" type="file" accept="image/jpeg,image/png,image/webp" data-a="foto" hidden>${s.foto ? '<button class="btn small" data-a="foto-sil">Kaldır</button>' : ''}</div></div></div>
     <p class="muted" style="margin:0">Bu bilgiler resmî formlara otomatik aktarılır. T.C. kimlik numarası ve posta adresi sistemde tutulmaz; yalnızca ilgili formu hazırlarken tarayıcında girilir.${adv ? '' : ' Yeni döneme geçtiğinde "Şu anki yarıyıl" bilgisini güncellemeyi unutma. E-posta adresin giriş için kullanıldığından onu yalnızca danışmanın değiştirebilir.'}</p>
     <div class="grid2" style="gap:14px">
       ${f('k-ad', 'Ad soyad', ilk && s.ad === s.eposta.split('@')[0] ? '' : s.ad)}${f('k-no', 'Öğrenci numarası', s.no)}
@@ -715,8 +734,8 @@ function ogrencilerHTML() {
   const aktif = S.students.filter(s => !s.arsiv), arsiv = S.students.filter(s => s.arsiv);
   const kart = s => { const p = ilerleme(s), h = hatirlatmalar(s), nb = bek.filter(x => x.s === s).length; return `
     <button class="scard" data-a="ac" data-s="${s.id}">
-      <div><div class="nm">${esc(s.ad)}</div><div class="muted" style="font-size:13.5px">${esc(PROGRAMS[s.program].kisa)} · ${s.donem}. yarıyıl${s.no ? ' · ' + esc(s.no) : ''}</div>
-        ${s.kayitTuru === 'af' ? '<span class="pill off" style="margin-top:4px">Af ile dönen</span>' : ''}${s.davetBekliyor ? '<div class="flagnote">• Davet bekliyor (henüz şifre belirlemedi)</div>' : !s.profilTamam ? '<div class="flagnote">• Kişisel bilgilerini henüz tamamlamadı</div>' : ''}${s.arsiv ? '' : h.map(x => `<div class="flagnote">• ${esc(x)}</div>`).join('')}</div>
+      <div style="display:flex;gap:12px;align-items:flex-start;min-width:0">${avatar(s, 48)}<div style="min-width:0"><div class="nm">${esc(s.ad)}</div><div class="muted" style="font-size:13.5px">${esc(PROGRAMS[s.program].kisa)} · ${s.donem}. yarıyıl${s.no ? ' · ' + esc(s.no) : ''}</div>
+        ${s.kayitTuru === 'af' ? '<span class="pill off" style="margin-top:4px">Af ile dönen</span>' : ''}${s.davetBekliyor ? '<div class="flagnote">• Davet bekliyor (henüz şifre belirlemedi)</div>' : !s.profilTamam ? '<div class="flagnote">• Kişisel bilgilerini henüz tamamlamadı</div>' : ''}${s.arsiv ? '' : h.map(x => `<div class="flagnote">• ${esc(x)}</div>`).join('')}</div></div>
       <div style="display:grid;gap:6px">${segBar(p, 'mini')}<div class="muted" style="font-size:13px">Sıradaki: ${esc(siradaki(s).b)}</div></div>
       <div style="display:grid;justify-items:end;gap:4px"><span class="p">%${Math.round(p.all)}</span>${nb ? `<span class="pill wait">${nb} onay bekliyor</span>` : ''}${s.arsiv ? '<span class="pill off">Arşiv</span>' : ''}</div>
     </button>`; };
@@ -793,7 +812,7 @@ async function hatirlatmaYukle() {
 function onaylarHTML() {
   const L = bekleyenler();
   return `<div><span class="eyebrow">Danışman paneli</span><h1 style="font-size:30px;margin-top:4px">Onay bekleyenler</h1></div>
-  <section class="panel">${L.length ? L.map((x, n) => `<div class="q"><div style="min-width:0"><div class="muted" style="font-size:13px">${esc(x.s.ad)}</div><div class="what">${esc(x.ad)}</div><div class="muted" style="font-size:13px">${esc(x.ek)}</div>
+  <section class="panel">${L.length ? L.map((x, n) => `<div class="q"><div style="min-width:0"><div class="muted" style="font-size:13px;display:flex;gap:8px;align-items:center">${avatar(x.s, 22)}${esc(x.s.ad)}</div><div class="what">${esc(x.ad)}</div><div class="muted" style="font-size:13px">${esc(x.ek)}</div>
       ${x.tip !== 'dosya' ? `<div class="row" style="margin-top:8px"><input class="input" id="qn-${n}" placeholder="Düzeltme notu (isteğe bağlı)" style="flex:1 1 220px"></div>` : ''}</div>
       <div class="row">${x.tip === 'dosya' ? `<button class="btn small primary" data-a="ac" data-s="${x.s.id}" data-k="dosyalar">Aç ve yorum yaz</button>` :
         x.tip === 'ders' ? `<button class="btn small primary" data-a="ders-islem" data-s="${x.s.id}" data-id="${x.id}" data-i="onayla">Onayla</button><button class="btn small" data-a="ders-islem" data-s="${x.s.id}" data-id="${x.id}" data-i="duzeltme" data-n="${n}">Düzeltme iste</button>` :
@@ -846,6 +865,7 @@ document.addEventListener('click', async e => {
       case 'hatirlatma-gonder': { const r = await api('/hatirlatmalar/gonder', { method: 'POST', body: {} }); S.hatirlatma = null; toast(`${r.gonderilen} hatırlatma gönderildi`); break; }
       case 'ac': S.viewing = el.dataset.s; S.section = el.dataset.k || 'genel'; scrollTo(0, 0); break;
       case 'ekle-ac': S.ekleAcik = !S.ekleAcik; S.topluAcik = false; break;
+      case 'foto-sil': await api(`/ogrenciler/${s.id}/foto`, { method: 'DELETE' }); await yenile(s.id); toast('Profil fotoğrafı kaldırıldı'); break;
       case 'sil-ac': S.silOnay = s.id; break;
       case 'sil-vazgec': S.silOnay = null; break;
       case 'ogrenci-sil': {
@@ -964,6 +984,15 @@ document.addEventListener('click', async e => {
 });
 
 document.addEventListener('change', async e => {
+  if (e.target.dataset.a === 'foto' && e.target.files[0]) {
+    const s = cur();
+    try {
+      const blob = await fotoHazirla(e.target.files[0]);
+      await api(`/ogrenciler/${s.id}/foto`, { method: 'POST', body: blob });
+      await yenile(s.id); toast('Profil fotoğrafı güncellendi');
+    } catch (err) { toast(err.message); }
+    e.target.value = ''; render(); return;
+  }
   if (e.target.dataset.a !== 'yukle' || !e.target.files[0]) return;
   const s = cur(), f = e.target.files[0];
   if (f.size > 25 * 1024 * 1024) { toast('Dosya 25 MB\'tan büyük', 'Daha küçük bir dosya seç ya da PDF olarak kaydet.'); e.target.value = ''; return; }

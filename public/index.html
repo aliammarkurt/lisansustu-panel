@@ -29,6 +29,7 @@
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0}
+#root{min-height:100%;display:grid}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
 h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:-.01em}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -246,6 +247,7 @@ a.btn{text-decoration:none;color:inherit}
 .crow.acik{grid-template-columns:92px minmax(0,1fr)}
 .crow.acik .sag{grid-column:1/-1;display:grid;gap:6px}
 @media (max-width:620px){.crow{grid-template-columns:minmax(0,1fr) auto}.crow .kod{grid-column:1/-1}.crow.acik{grid-template-columns:1fr}}
+.av{border-radius:50%;object-fit:cover;flex:none;display:inline-grid;place-items:center;background:var(--accent-soft);color:var(--accent);font-weight:700;font-family:var(--f-display);letter-spacing:.02em}
 .linkbtn{background:none;border:0;color:var(--accent);padding:0;font-weight:600;text-align:left}
 </style>
 </head>

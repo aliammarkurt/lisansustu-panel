@@ -32,7 +32,7 @@ async function ensureSchema(env) {
   if (schemaReady) return;
   await env.DB.batch(SCHEMA.map(s => env.DB.prepare(s)));
   // Sonradan eklenen sütunlar (varsa hata verir, yok sayılır)
-  for (const sql of [`ALTER TABLE students ADD COLUMN kayit_turu TEXT NOT NULL DEFAULT 'normal'`, `ALTER TABLE students ADD COLUMN profil_tamam INTEGER NOT NULL DEFAULT 1`]) {
+  for (const sql of [`ALTER TABLE students ADD COLUMN kayit_turu TEXT NOT NULL DEFAULT 'normal'`, `ALTER TABLE students ADD COLUMN profil_tamam INTEGER NOT NULL DEFAULT 1`, `ALTER TABLE students ADD COLUMN foto_v INTEGER NOT NULL DEFAULT 0`]) {
     try { await env.DB.prepare(sql).run(); } catch {}
   }
   schemaReady = true;
@@ -136,7 +136,7 @@ async function loadStudent(env, id) {
   ]);
   return {
     id: s.id, ad: s.ad, eposta: s.email, no: s.no || '', program: s.program, kayit: s.kayit,
-    donem: s.donem, danismanDonem: s.danisman_donem, statu: s.statu || '', arsiv: !!s.arsiv, kayitTuru: s.kayit_turu || 'normal', profilTamam: s.profil_tamam !== 0,
+    donem: s.donem, danismanDonem: s.danisman_donem, statu: s.statu || '', arsiv: !!s.arsiv, kayitTuru: s.kayit_turu || 'normal', profilTamam: s.profil_tamam !== 0, foto: s.foto_v || 0,
     davetBekliyor: !s.pass_hash, kvkk: s.kvkk_at,
     tez: { ...bosTez(), ...parse(s.tez, {}) },
     adim: parse(s.adim, {}), adimTarih: parse(s.adim_tarih, {}),
@@ -359,7 +359,8 @@ async function route(req, env, ctx, url) {
       const st = await studentOr404(env, user, sid);
       // Önce dosya deposundaki tez dosyaları
       const keys = (await env.DB.prepare(`SELECT r2_key FROM files WHERE student_id = ?`).bind(sid).all()).results.map(r => r.r2_key);
-      if (keys.length && env.FILES) { for (let i = 0; i < keys.length; i += 500) await env.FILES.delete(keys.slice(i, i + 500)); }
+      keys.push(`foto/${sid}.jpg`);
+      if (env.FILES) { for (let i = 0; i < keys.length; i += 500) await env.FILES.delete(keys.slice(i, i + 500)); }
       await env.DB.batch([
         'courses', 'files', 'messages', 'reminders',
       ].map(t => env.DB.prepare(`DELETE FROM ${t} WHERE student_id = ?`).bind(sid)).concat([
@@ -427,6 +428,33 @@ async function route(req, env, ctx, url) {
     };
     await env.DB.prepare(`UPDATE students SET tez = ? WHERE user_id = ?`).bind(JSON.stringify(t), sid).run();
     return json({ ok: true });
+  }
+
+  /* ---- Profil fotoğrafı ---- */
+  if ((m = p.match(/^\/api\/ogrenciler\/([\w-]+)\/foto$/))) {
+    const sid = m[1]; await studentOr404(env, user, sid);
+    if (!env.FILES) fail(503, 'Dosya depolama bağlı değil.');
+    const key = `foto/${sid}.jpg`;
+    if (M === 'POST') {
+      const tur = (req.headers.get('Content-Type') || '').split(';')[0];
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(tur)) fail(400, 'Fotoğraf JPEG, PNG ya da WebP olmalı.');
+      const veri = await req.arrayBuffer();
+      if (!veri.byteLength || veri.byteLength > 2 * 1024 * 1024) fail(413, 'Fotoğraf en fazla 2 MB olabilir.');
+      await env.FILES.put(key, veri, { httpMetadata: { contentType: tur } });
+      await env.DB.prepare(`UPDATE students SET foto_v = foto_v + 1 WHERE user_id = ?`).bind(sid).run();
+      return json({ ok: true });
+    }
+    if (M === 'DELETE') {
+      await env.FILES.delete(key);
+      await env.DB.prepare(`UPDATE students SET foto_v = 0 WHERE user_id = ?`).bind(sid).run();
+      return json({ ok: true });
+    }
+  }
+  if ((m = p.match(/^\/api\/foto\/([\w-]+)$/)) && M === 'GET') {
+    if (!canSee(user, m[1])) fail(404, 'Bulunamadı.');
+    const o = env.FILES && await env.FILES.get(`foto/${m[1]}.jpg`);
+    if (!o) fail(404, 'Fotoğraf yok.');
+    return new Response(o.body, { headers: { 'Content-Type': o.httpMetadata?.contentType || 'image/jpeg', 'Cache-Control': 'private, max-age=604800', 'X-Content-Type-Options': 'nosniff' } });
   }
 
   /* ---- Dersler ---- */
