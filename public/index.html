@@ -43,7 +43,7 @@ button{cursor:pointer}
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 
 /* ---------- Giriş ---------- */
-.login{min-height:calc(100% - 32px);display:grid;place-items:center;padding-block:32px;
+.login{min-height:100%;display:grid;place-items:center;padding-block:32px;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .login-card{width:min(440px,100%);background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:32px;display:grid;gap:18px}
 .login-card h1{font-size:30px;line-height:1.1}
@@ -61,7 +61,7 @@ button{cursor:pointer}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 
 /* ---------- Uygulama iskeleti ---------- */
-.app{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr;min-height:calc(100% - 32px)}
+.app{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr;min-height:100%}
 .topbar{display:flex;align-items:center;gap:12px;background:var(--surface);border-bottom:1px solid var(--line);padding-block:10px;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));position:sticky;top:env(safe-area-inset-top,0px);z-index:20}
 .brand{font-family:var(--f-display);font-weight:800;font-size:18px;display:flex;gap:10px;align-items:center}
