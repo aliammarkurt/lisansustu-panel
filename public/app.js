@@ -368,8 +368,11 @@ function anaIcerik() {
 }
 
 /* ======================== ÖĞRENCİ EKRANLARI ======================== */
+// Tek parça ilerleme çubuğu: tamamlanan kısım düz, devam eden kısım hemen ardından çizgili
 function segBar(p, cls = 'track') {
-  return `<div class="${cls}">${p.seg.map(x => `<div class="seg" style="flex:${x.w}" title="${esc(x.ad)}: %${Math.round(x.all * 100)}"><span class="ok" style="width:${x.ok * 100}%"></span><span class="pend" style="left:${x.ok * 100}%;width:${(x.all - x.ok) * 100}%"></span></div>`).join('')}</div>`;
+  const ok = Math.min(100, p.ok), all = Math.min(100, p.all);
+  const ipucu = p.seg.map(x => `${x.ad}: %${Math.round(x.all * 100)}`).join(' · ');
+  return `<div class="${cls}" title="${esc(ipucu)}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(all)}"><span class="ok" style="width:${ok}%"></span><span class="pend" style="left:${ok}%;width:${all - ok}%"></span></div>`;
 }
 function heroHTML(s) {
   const p = ilerleme(s), pct = Math.round(p.all), nx = siradaki(s);

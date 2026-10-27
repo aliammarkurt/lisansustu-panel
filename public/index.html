@@ -92,10 +92,9 @@ svg{stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-l
 .hero .pct{font-family:var(--f-display);font-weight:800;font-size:clamp(54px,9vw,84px);line-height:.95;letter-spacing:-.03em}
 .hero .pct small{font-size:.42em;font-weight:700;color:var(--muted);margin-left:2px}
 .hero .lead{font-size:17px;max-width:46ch;margin:0 auto}
-.track{position:relative;display:flex;gap:3px;height:26px;border-radius:999px;overflow:hidden;background:var(--line)}
-.seg{position:relative;background:var(--surface-2);height:100%;overflow:hidden}
-.seg .ok{position:absolute;inset:0 auto 0 0;background:var(--accent);transition:width .7s cubic-bezier(.2,.8,.2,1)}
-.seg .pend{position:absolute;inset:0 auto 0 0;background:repeating-linear-gradient(-45deg,var(--sun) 0 6px,var(--sun-soft) 6px 11px);transition:width .7s, left .7s}
+.track{position:relative;height:26px;border-radius:999px;overflow:hidden;background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--line)}
+.track .ok,.mini .ok{position:absolute;inset:0 auto 0 0;background:var(--accent);border-radius:999px 0 0 999px;transition:width .7s cubic-bezier(.2,.8,.2,1)}
+.track .pend,.mini .pend{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(-45deg,var(--sun) 0 6px,var(--sun-soft) 6px 11px);transition:width .7s, left .7s}
 .flags{position:relative;height:38px;font-size:12px;color:var(--muted)}
 .flag{position:absolute;top:2px;transform:translateX(-50%);white-space:nowrap;display:grid;justify-items:center;gap:2px}
 .flag::before{content:"";width:1px;height:8px;background:var(--line)}
@@ -163,8 +162,7 @@ td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-align:ri
 .scard{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,2fr) auto;gap:18px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px;text-align:left;width:100%}
 .scard:hover{border-color:var(--accent)}
 .scard .nm{font-weight:600;font-size:16px}
-.mini{display:flex;gap:2px;height:10px;border-radius:999px;overflow:hidden;background:var(--line)}
-.mini .seg{background:var(--surface-2)}
+.mini{position:relative;height:10px;border-radius:999px;overflow:hidden;background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--line)}
 .scard .p{font-family:var(--f-display);font-weight:800;font-size:26px;text-align:right}
 @media (max-width:720px){.scard{grid-template-columns:1fr}.scard .p{text-align:left}}
 .flagnote{font-size:13px;color:var(--sun);margin-top:4px}
@@ -218,7 +216,7 @@ td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-align:ri
 .confetti i{position:absolute;top:-12px;width:8px;height:12px;border-radius:2px;animation:fall 1.8s ease-in forwards}
 @keyframes fall{to{transform:translateY(105vh) rotate(540deg);opacity:.9}}
 .celebrate{background:var(--accent);color:var(--accent-ink);border-radius:12px;padding:14px 16px;font-weight:600;text-align:center}
-@media (prefers-reduced-motion: reduce){.seg .ok,.seg .pend{transition:none}.confetti{display:none}.toast{animation:none}}
+@media (prefers-reduced-motion: reduce){.track .ok,.track .pend{transition:none}.confetti{display:none}.toast{animation:none}}
 
 @media (max-width:760px){
   .body,.body.collapsed{grid-template-columns:minmax(0,1fr)}
