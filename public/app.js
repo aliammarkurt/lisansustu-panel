@@ -102,10 +102,13 @@ const BOLUMLER = [
   { k: 'yazim', ad: 'Tez yazımı', w: 20 }, { k: 'hazirlik', ad: 'Savunmaya hazırlık', w: 8 },
   { k: 'savunma', ad: 'Savunma', w: 8 }, { k: 'teslim', ad: 'Mezuniyet', w: 4 },
 ];
-const BAYRAKLAR = [
-  { ad: 'Başlangıç', at: 0, k: ['kayit'] }, { ad: 'Ders dönemi', at: 50, k: ['dersler', 'zorunlu', 'seminer'] },
-  { ad: 'Tez önerisi', at: 60, k: ['oneri'] }, { ad: 'Tez', at: 80, k: ['yazim'] },
-  { ad: 'Savunma', at: 88, k: ['hazirlik', 'savunma'] }, { ad: 'Mezuniyet', at: 100, k: ['teslim'] },
+// Çubuğun altındaki beş ana aşama (bölüm ağırlıklarının toplamıyla hizalı)
+const FAZLAR = [
+  { ad: 'Dersler', bas: 0, bit: 50, k: ['kayit', 'dersler', 'zorunlu', 'seminer', 'uad'] },
+  { ad: 'Tez önerisi', bas: 50, bit: 60, k: ['oneri'] },
+  { ad: 'Tez', bas: 60, bit: 80, k: ['yazim'] },
+  { ad: 'Savunma', bas: 80, bit: 96, k: ['hazirlik', 'savunma'] },
+  { ad: 'Mezuniyet', bas: 96, bit: 100, k: ['teslim'] },
 ];
 function ilerleme(s) {
   const a = hesapla(s, 0), b = hesapla(s, 0.5);
@@ -382,7 +385,7 @@ function heroHTML(s) {
     <div class="pct" style="font-family:var(--f-display)">%${pct}</div>
     <div style="display:grid;gap:4px"><p class="lead">${esc(isAdv() ? asamaBilgisi(s, false) : mesaj(pct, s))}</p>${isAdv() ? '' : `<p class="muted" style="margin:0;font-size:14.5px">${esc(asamaBilgisi(s, true))}</p>`}</div>
     ${segBar(p)}
-    <div class="flags">${BAYRAKLAR.map(b => `<div class="flag ${done(b.k) ? 'done' : ''}" style="left:${b.at}%"><span>${done(b.k) ? '✓ ' : ''}${b.ad}</span></div>`).join('')}</div>
+    <div class="flags">${(() => { const aktif = FAZLAR.find(f => !done(f.k)); return FAZLAR.map((f, i) => `${i ? `<i class="sinir" style="left:${f.bas}%"></i>` : ''}<div class="flag ${done(f.k) ? 'done' : ''} ${f === aktif ? 'aktif' : ''} ${i === FAZLAR.length - 1 ? 'son' : ''}" style="left:${i === FAZLAR.length - 1 ? 100 : (f.bas + f.bit) / 2}%"><span>${done(f.k) ? '✓ ' : ''}${f.ad}</span></div>`).join(''); })()}</div>
     <div class="legend"><span><i style="background:var(--accent)"></i>Tamamlandı</span><span><i style="background:repeating-linear-gradient(-45deg,var(--sun) 0 4px,var(--sun-soft) 4px 7px)"></i>Devam ediyor ya da danışman onayında (yarısı sayılır)</span>${p.pend > 0.05 ? `<span class="mono">%${fmt(p.pend)} yolda</span>` : ''}</div>
     <div class="next"><div class="dot">→</div><div><span class="eyebrow">${isAdv() ? 'Sıradaki adım' : 'Sıradaki adımın'}</span><b>${esc(nx.b)}</b><span class="muted" style="font-size:14px">${esc(nx.t)}</span></div><button class="btn small" data-a="nav" data-k="${nx.sec}">Git</button></div>
   </section>`;
