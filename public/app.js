@@ -1,6 +1,6 @@
 // Lisansüstü Panel — arayüz
 import { PROGRAMS, TUR_AD, SONUCLU, ADIMLAR, ADIM, KAYIT_DONEMLERI } from './shared.js';
-import { belgeVerisi, BELGE_SABLON, dosyaAdi } from './belge-veri.js';
+import { belgeVerisi, BELGE_SABLON, dosyaAdi, ilgiEki } from './belge-veri.js';
 
 const DANISMAN = 'Dr. Öğr. Üyesi Ali Ammar Kurt';
 
@@ -112,14 +112,47 @@ function ilerleme(s) {
   const seg = BOLUMLER.map(x => { ok += x.w * a.deg[x.k]; all += x.w * b.deg[x.k]; return { ...x, ok: a.deg[x.k], all: b.deg[x.k] }; });
   return { ok, all, pend: all - ok, seg, a, b };
 }
-function mesaj(p) {
-  if (p >= 100) return 'Tebrikler! Tüm mezuniyet koşulları tamamlandı.';
-  if (p >= 90) return 'Neredeyse bitti. Son birkaç adım kaldı.';
-  if (p >= 70) return 'Son düzlüktesin. Savunma artık ufukta.';
-  if (p >= 50) return 'Yolun yarısını geçtin. Tezin artık gerçekten şekilleniyor.';
-  if (p >= 30) return 'İyi gidiyorsun. Ders dönemin tezine sağlam bir zemin hazırlıyor.';
-  if (p >= 10) return 'Temeller atılıyor. Attığın her adım burada görünüyor.';
-  return 'Yolculuk başladı. Her adımın bu çubuğu biraz daha dolduracak.';
+// İlerleme mesajları: yüzde aralığına göre bir ana cümle (her gün değişir) + bulunduğu aşamaya özel bir bilgi satırı
+const MESAJLAR = [
+  [100, ['Tebrikler! Tüm mezuniyet koşulları tamamlandı.', 'Başardın! Bu yolculuğun her adımı burada kayıtlı.']],
+  [90, ['Neredeyse bitti, son birkaç adım kaldı.', 'Bitiş çizgisi görünüyor. Son adımlar senin.', 'Çok az kaldı. Bu emeğin karşılığını almak üzeresin.']],
+  [80, ['Son düzlüktesin. Savunma artık ufukta.', 'Harika bir noktadasın; geriye bakınca ne kadar yol aldığını gör.', 'Tezin artık neredeyse tamam. Bu tempoyu koru.']],
+  [70, ['Yolun büyük kısmı geride kaldı.', 'Emeğin görünür hâle geldi; çubuk bunun kanıtı.', 'İstikrarın işe yarıyor. Devam!']],
+  [60, ['Çubuğun yarısından fazlası dolu. Tezin şekilleniyor.', 'Artık bir tez yazarısın. Her bölüm seni bitişe yaklaştırıyor.', 'Güzel ilerliyorsun; küçük adımlar büyük farklar yaratıyor.']],
+  [50, ['Yolun yarısını geçtin!', 'Yarı yol tamam. Buradan sonrası seni tezinle buluşturuyor.', 'Yarıyı aştın. Kendine bir teşekkür borçlusun.']],
+  [40, ['Sağlam bir temel oluşuyor.', 'İyi gidiyorsun. Her tamamlanan iş, bir sonrakini kolaylaştırıyor.', 'Ritmini buldun gibi görünüyor.']],
+  [30, ['İyi gidiyorsun. Ders dönemin tezine zemin hazırlıyor.', 'Adım adım ilerliyorsun ve bu çok değerli.', 'Temeller güçleniyor; tez fikrin de bu sırada olgunlaşıyor.']],
+  [20, ['Yol alıyorsun. Attığın her adım burada görünüyor.', 'Başlangıç heyecanı yerini ritme bırakıyor.', 'İlk adımlar en zorlarıdır; sen onları atıyorsun.']],
+  [10, ['Temeller atılıyor.', 'Güzel bir başlangıç. Devamı da gelecek.', 'Her yolculuk ilk adımlarla başlar, seninki başladı.']],
+  [0, ['Yolculuk başladı. Her adımın bu çubuğu biraz daha dolduracak.', 'Hoş geldin! Bu çubuk seninle birlikte büyüyecek.', 'Buradan bakınca uzun görünebilir; birlikte adım adım ilerleyeceğiz.']],
+];
+function gununSecimi(L, tohum) {
+  const gun = Math.floor((Date.now() + 3 * 36e5) / 864e5);
+  return L[(gun + tohum) % L.length];
+}
+function mesaj(p, s) {
+  const band = MESAJLAR.find(([alt]) => p >= alt)[1];
+  const tohum = s ? [...s.id].reduce((x, c) => x + c.charCodeAt(0), 0) : 0;
+  return gununSecimi(band, tohum);
+}
+// Aşamaya özel bilgi satırı (öğrenci için "sen", danışman için öğrencinin adıyla)
+function asamaBilgisi(s, sen) {
+  const a = hesapla(s, 0), ad = s.ad.split(' ')[0];
+  const t = (senMetni, oMetni) => sen ? senMetni : oMetni;
+  const yazim = ADIMLAR.find(g => g.grup === 'yazim').items, yz = yazim.filter(i => s.adim[i.k] === 'tamam').length;
+  if (s.adim.ciltli === 'tamam' && s.adim.cikis === 'tamam') return t('Tüm adımlar tamam. Mezuniyetin kutlu olsun!', `${ad} tüm adımları tamamladı.`);
+  if (s.adim.savunma === 'tamam') return t('Savunmayı geçtin! Geriye ciltli teslim ve çıkış işlemleri kaldı.', `${ad} savunmayı geçti; ciltli teslim ve çıkış işlemleri kaldı.`);
+  if (s.tez.sinavTarih && s.adim.savunma !== 'tamam') {
+    const k = Math.round((new Date(s.tez.sinavTarih + 'T12:00') - Date.now()) / 864e5);
+    if (k >= 0) return t(`Savunmana ${k === 0 ? 'bugün' : k + ' gün'} ${k === 0 ? 'çıkıyorsun' : 'kaldı'}. Hazırsın!`, `${ilgiEki(ad)} savunmasına ${k === 0 ? 'bugün' : k + ' gün kaldı'}.`);
+  }
+  if (yz === yazim.length) return t('Tez yazımı tamam! Savunmaya hazırlık başlıyor.', `${ad} tez yazımını tamamladı.`);
+  if (s.adim.oneriKabul === 'tamam') return t(`Tezinin ${yazim.length} aşamasından ${yz} tanesi tamam.`, `Tez yazımında ${yazim.length} aşamadan ${yz} tanesi tamam.`);
+  if (a.ders >= 7 && a.kredi >= 21) return t('Ders şartını tamamladın! Şimdi sıra fikrini teze dönüştürmekte.', `${ad} ders şartını tamamladı; sıra tez önerisinde.`);
+  if (s.adim.konu === 'tamam') return t('Tez konun belli. Önerini yazmaya başlayabilirsin.', `${ilgiEki(ad)} tez konusu belli; öneri aşamasında.`);
+  const devam = s.dersler.filter(r => r.durum === 'aliyor').length;
+  if (a.ders > 0 || devam) return t(`7 kredili dersin ${Math.floor(a.ders)} tanesi tamam${devam ? `, ${devam} ders devam ediyor` : ''}.`, `7 kredili dersten ${Math.floor(a.ders)} tamam${devam ? `, ${devam} devam ediyor` : ''}.`);
+  return t('İlk adım: bu dönem aldığın dersleri "Ders durumu"ndan ekle.', `${ad} henüz ders eklemedi.`);
 }
 function siradaki(s) {
   const a = hesapla(s, 0);
@@ -327,7 +360,7 @@ function heroHTML(s) {
   return `<section class="hero" aria-label="Genel ilerleme">
     <div class="eyebrow">${esc(PROGRAMS[s.program].kisa)} · ${s.donem}. yarıyıl</div>
     <div class="pct" style="font-family:var(--f-display)">%${pct}</div>
-    <p class="lead">${esc(mesaj(pct))}</p>
+    <div style="display:grid;gap:4px"><p class="lead">${esc(isAdv() ? asamaBilgisi(s, false) : mesaj(pct, s))}</p>${isAdv() ? '' : `<p class="muted" style="margin:0;font-size:14.5px">${esc(asamaBilgisi(s, true))}</p>`}</div>
     ${segBar(p)}
     <div class="flags">${BAYRAKLAR.map(b => `<div class="flag ${done(b.k) ? 'done' : ''}" style="left:${b.at}%"><span>${done(b.k) ? '✓ ' : ''}${b.ad}</span></div>`).join('')}</div>
     <div class="legend"><span><i style="background:var(--accent)"></i>Tamamlandı</span><span><i style="background:repeating-linear-gradient(-45deg,var(--sun) 0 4px,var(--sun-soft) 4px 7px)"></i>Devam ediyor ya da danışman onayında (yarısı sayılır)</span>${p.pend > 0.05 ? `<span class="mono">%${fmt(p.pend)} yolda</span>` : ''}</div>
