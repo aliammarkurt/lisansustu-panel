@@ -9,7 +9,7 @@ const S = {
   ben: null, mailVar: false,
   students: [], viewing: null, section: 'genel',
   collapsed: false, mopen: false, modal: null, gecici: null, celebrate: null,
-  notEdit: null, ekleAcik: false, sonLink: null, token: null, tokenBilgi: null, hata: '',
+  notEdit: null, ekleKod: null, ekleAcik: false, sonLink: null, token: null, tokenBilgi: null, hata: '',
   mesgul: false,
 };
 const isAdv = () => S.ben?.rol === 'danisman';
@@ -414,7 +414,6 @@ function derslerHTML(s) {
       <td class="num">${r.not ?? (r.sonuc === 'basarili' ? 'B' : '—')}</td><td class="num">${r.final ?? '—'}</td>
       <td>${durumPill(r, c)}</td><td>${islem(r, c)}</td></tr>`; }).join('')}
     </tbody></table></div>`;
-  const opts = ['zorunlu', 'secmeli', 'bay', 'etik', 'seminer', 'uad', 'tez'].map(tur => { const cs = P.katalog.filter(c => c.tur === tur); return cs.length ? `<optgroup label="${TUR_AD[tur]}">${cs.map(c => `<option value="${esc(c.kod)}">${esc(c.kod)} · ${esc(c.ad)} (${c.kredi} kr / ${c.akts} AKTS)</option>`).join('')}</optgroup>` : ''; }).join('');
   return `
   <section class="panel">
     <div class="row" style="justify-content:space-between"><h2>Ders durumu</h2><span class="muted" style="font-size:13.5px">Çubuk, müfredat listesine göre değil yönetmelik koşullarına göre ilerler.</span></div>
@@ -424,18 +423,51 @@ function derslerHTML(s) {
       <div class="stat"><span class="eyebrow">AKTS (en az 120)</span><span class="v mono">${fmt(a.akts)}</span><div class="meter"><i style="width:${Math.min(100, a.akts / 120 * 100)}%"></i></div></div>
     </div>
     <p class="muted" style="margin:0;font-size:13.5px">Bilimsel Araştırma Yöntemleri ve Bilimsel Etik zorunludur ama 7 ders sayısına girmez. Seminer, UAD ve tez çalışması başarılı/başarısız olarak değerlendirilir. Bir dersin sayılması için başarı notu ve yarıyıl sonu/bütünleme notu en az 70 olmalı.</p>
-    ${terms.length ? terms.map(tbl).join('') : '<p class="muted">Henüz ders eklenmedi. Aşağıdan bu dönem aldığın dersleri ekleyerek başla.</p>'}
+    ${terms.length ? terms.map(tbl).join('') : '<p class="muted">Henüz ders eklenmedi. Aşağıdaki program dersleri listesinden aldığın derslere tıklayarak başla.</p>'}
   </section>
-  <section class="panel"><h2>Ders ekle</h2>
-    <p class="muted" style="margin:0">${adv ? 'Öğrenci adına ders ekleyebilirsiniz.' : 'Programının ders listesinden seç. Sonucunu girdiğinde ders danışman onayına gider ve çubukta yarım dolar.'}</p>
-    <div class="grid2" style="gap:12px">
-      <div class="field" style="grid-column:1/-1"><label for="d-kod">Ders</label><select class="input" id="d-kod">${opts}</select></div>
-      <div class="field"><label for="d-donem">Yarıyıl</label><select class="input" id="d-donem">${[1, 2, 3, 4, 5, 6].map(n => `<option ${n === s.donem ? 'selected' : ''} value="${n}">${n}. yarıyıl</option>`).join('')}</select></div>
-      <div class="field"><label for="d-kaynak">Ders nereden</label><select class="input" id="d-kaynak"><option value="program">Kendi programım</option><option value="lisans">Lisans dersi (en fazla 2)</option><option value="dis">Başka üniversite (en fazla 2, EYK onayı)</option></select></div>
-      <div class="field"><label for="d-not">Başarı notu (boşsa "alıyorum")</label><input class="input" id="d-not" type="number" min="0" max="100" placeholder="ör. 85"></div>
-      <div class="field"><label for="d-final">Yarıyıl sonu / bütünleme notu</label><input class="input" id="d-final" type="number" min="0" max="100" placeholder="ör. 80"></div>
-    </div>
-    <div class="row"><button class="btn primary" data-a="ders-ekle">Ekle</button>${adv ? '<label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" id="d-onayli"> Doğrudan onaylı ekle</label>' : ''}<span class="muted" style="font-size:13px">Seminer ve UAD için not alanını boş bırak; sonra "Sonuç gir" ile Başarılı'yı seç.</span></div>
+  ${programDersleriHTML(s, adv)}`;
+}
+const GRUP_SIRA = [
+  ['zorunlu', 'Zorunlu dersler'], ['secmeli', 'Seçmeli dersler'], ['bay', 'Araştırma yöntemleri'], ['etik', 'Araştırma ve yayın etiği'],
+  ['seminer', 'Seminer'], ['uad', 'Uzmanlık alan dersleri'], ['tez', 'Tez çalışması'],
+];
+function programDersleriHTML(s, adv) {
+  const P = PROGRAMS[s.program];
+  const kayit = kod => s.dersler.filter(r => r.kod === kod);
+  const zk = P.katalog.filter(c => c.tur === 'zorunlu' && c.kredi > 0);
+  const minSec = Math.max(0, Math.max(7 - zk.length, Math.ceil((21 - zk.reduce((x, c) => x + c.kredi, 0)) / 3)));
+  const satir = c => {
+    const L = kayit(c.kod), son = L[L.length - 1];
+    const tekrar = son && son.durum !== 'aliyor' && son.durum !== 'duzeltme' && !gecti(son, c) && son.durum !== 'onay';
+    let sag;
+    if (S.ekleKod === c.kod) {
+      const sonuclu = SONUCLU.includes(c.tur);
+      sag = `<div class="row" style="gap:8px;justify-content:flex-end">
+        <select class="input" id="e-donem" aria-label="Yarıyıl" style="width:auto">${[1, 2, 3, 4, 5, 6].map(n => `<option ${n === s.donem ? 'selected' : ''} value="${n}">${n}. yarıyıl</option>`).join('')}</select>
+        ${sonuclu ? `<label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" id="e-basarili"> Başarılı</label>`
+          : `<input class="input" id="e-not" type="number" min="0" max="100" placeholder="Not" aria-label="Başarı notu" style="width:76px"><input class="input" id="e-final" type="number" min="0" max="100" placeholder="Final" aria-label="Yarıyıl sonu notu" style="width:76px">`}
+        ${adv ? '<label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="e-onayli"> Onaylı</label>' : ''}
+        <button class="btn small primary" data-a="ders-ekle" data-kod="${esc(c.kod)}">Kaydet</button><button class="btn small" data-a="ekle-kapat">Vazgeç</button></div>
+        <div class="muted" style="font-size:12.5px;text-align:right">${sonuclu ? 'Sonuç belli değilse "Başarılı"yı işaretlemeden kaydet; ders "alıyor" olarak eklenir.' : 'Not henüz açıklanmadıysa boş bırak; ders "alıyor" olarak eklenir.'}</div>`;
+    } else if (son && !tekrar) {
+      sag = `<span class="row" style="gap:8px;justify-content:flex-end"><span class="muted" style="font-size:13px">${son.donem}. yarıyıl</span>${durumPill(son, c)}</span>`;
+    } else {
+      sag = `<button class="btn small ${tekrar ? 'sun' : ''}" data-a="ekle-ac-kod" data-kod="${esc(c.kod)}">${tekrar ? 'Tekrar al' : '+ Aldım / alıyorum'}</button>`;
+    }
+    return `<div class="crow ${son && !tekrar ? 'alindi' : ''} ${S.ekleKod === c.kod ? 'acik' : ''}"><span class="mono kod">${esc(c.kod)}</span><div style="min-width:0"><div>${esc(c.ad)}</div><div class="muted" style="font-size:12.5px">${c.kredi} kredi · ${c.akts} AKTS</div></div><div class="sag">${sag}</div></div>`;
+  };
+  const grup = ([tur, baslik]) => {
+    const cs = P.katalog.filter(c => c.tur === tur); if (!cs.length) return '';
+    const alinan = cs.filter(c => kayit(c.kod).some(r => r.durum === 'aliyor' || r.durum === 'onay' || r.durum === 'tamam' && gecti(r, c))).length;
+    let ozet = `${alinan} / ${cs.length} eklendi`;
+    if (tur === 'secmeli' && minSec) ozet = `${alinan} eklendi · en az ${minSec} gerekli`;
+    if (tur === 'zorunlu') ozet = `${alinan} / ${cs.length} eklendi · hepsi gerekli`;
+    return `<div class="cgrp"><div class="term-h"><span class="eyebrow">${baslik}</span><span class="muted mono" style="font-size:12.5px">${ozet}</span></div>${cs.map(satir).join('')}</div>`;
+  };
+  return `<section class="panel"><h2>Program dersleri</h2>
+    <p class="muted" style="margin:0">${esc(P.ad)} öğretim planındaki dersler. ${adv ? 'Öğrenci adına ders ekleyebilirsiniz.' : 'Aldığın ya da şu an aldığın derse tıkla; notun açıklanınca girersin, ders danışman onayına gider ve çubukta yarım dolar.'}</p>
+    ${GRUP_SIRA.map(grup).join('')}
+    <p class="muted" style="margin:0;font-size:13px">Lisans programından ya da başka bir üniversiteden ders aldıysan danışmanına yaz.</p>
   </section>`;
 }
 function tezHTML(s) {
@@ -707,7 +739,7 @@ document.addEventListener('click', async e => {
       case 'ekran': S.ekran = el.dataset.k; S.hata = ''; history.replaceState(null, '', '/'); break;
       case 'cikis': await api('/cikis', { method: 'POST', body: {} }); S.ben = null; S.students = []; S.ekran = 'giris'; S.modal = null; break;
       case 'toggle': if (innerWidth <= 760) S.mopen = !S.mopen; else S.collapsed = !S.collapsed; break;
-      case 'nav': S.section = el.dataset.k; S.mopen = false; S.notEdit = null; if (isAdv() && ['ogrenciler', 'onaylar'].includes(el.dataset.k)) S.viewing = null; scrollTo(0, 0); break;
+      case 'nav': S.section = el.dataset.k; S.mopen = false; S.notEdit = null; S.ekleKod = null; if (isAdv() && ['ogrenciler', 'onaylar'].includes(el.dataset.k)) S.viewing = null; scrollTo(0, 0); break;
       case 'ac': S.viewing = el.dataset.s; S.section = el.dataset.k || 'genel'; scrollTo(0, 0); break;
       case 'ekle-ac': S.ekleAcik = !S.ekleAcik; break;
       case 'link-kapat': S.sonLink = null; break;
@@ -739,13 +771,17 @@ document.addEventListener('click', async e => {
         document.querySelectorAll('[data-juri]').forEach(i => t.juri[+i.dataset.juri][i.dataset.f] = i.value);
         await api(`/ogrenciler/${s.id}/tez`, { method: 'PUT', body: t }); await yenile(s.id); toast('Tez bilgileri kaydedildi', 'Belgeler bölümündeki formlar güncellendi.');
         break; }
+      case 'ekle-ac-kod': S.ekleKod = el.dataset.kod; break;
+      case 'ekle-kapat': S.ekleKod = null; break;
       case 'ders-ekle': {
-        const kod = val('d-kod'), c = kat(s, kod);
-        const b = { kod, donem: +val('d-donem'), kaynak: val('d-kaynak'), not: val('d-not'), final: val('d-final'), durum: document.getElementById('d-onayli')?.checked ? 'tamam' : undefined };
+        const kod = el.dataset.kod, c = kat(s, kod), sonuclu = SONUCLU.includes(c.tur);
+        const b = { kod, donem: +val('e-donem'), kaynak: 'program', not: sonuclu ? '' : val('e-not'), final: sonuclu ? '' : val('e-final'), sonuc: sonuclu && document.getElementById('e-basarili')?.checked ? 'basarili' : null, durum: document.getElementById('e-onayli')?.checked ? 'tamam' : undefined };
         await islemYap(s, () => api(`/ogrenciler/${s.id}/dersler`, { method: 'POST', body: b }));
-        const r = { not: b.not === '' ? null : +b.not, final: b.final === '' ? null : +b.final };
-        if (b.not !== '' && !gecti(r, c)) toast('Ders eklendi ama sayılmayacak', 'Başarı notu ve yarıyıl sonu notu en az 70 olmalı. Seçmeliyse başka bir seçmeliyle telafi edebilirsin.');
-        else toast(b.not !== '' ? (isAdv() ? 'Ders eklendi' : 'Ders eklendi ve onaya gönderildi') : 'Ders "alıyor" olarak eklendi');
+        S.ekleKod = null;
+        const sonucVar = b.not !== '' || b.sonuc;
+        const r = { not: b.not === '' ? null : +b.not, final: b.final === '' ? null : +b.final, sonuc: b.sonuc };
+        if (sonucVar && !gecti(r, c)) toast('Ders eklendi ama sayılmayacak', 'Başarı notu ve yarıyıl sonu notu en az 70 olmalı. Seçmeliyse başka bir seçmeliyle telafi edebilirsin.');
+        else toast(sonucVar ? (isAdv() ? 'Ders eklendi' : 'Ders eklendi ve onaya gönderildi') : 'Ders "alıyor" olarak eklendi', sonucVar || isAdv() ? '' : 'Notun açıklanınca "Sonuç gir" ile gir.');
         break; }
       case 'not-ac': S.notEdit = +el.dataset.id; break;
       case 'not-kapat': S.notEdit = null; break;
