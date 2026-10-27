@@ -15,3 +15,8 @@ Adres: https://panel.aliammarkurt.com
 
 ## Veri ilkeleri
 T.C. kimlik numarası ve posta adresi sunucuya gönderilmez ve saklanmaz.
+
+## Word belgeleri
+- `public/sablonlar/` — enstitünün resmî formlarından üretilmiş, `{etiket}` alanlı şablonlar
+- `public/belge-veri.js` — panel verisinden form alanlarını hazırlar; doldurma tarayıcıda yapılır (docxtemplater)
+- `tools/sablon-uret.py` — resmî formlar değişirse şablonları yeniden üretmek için betik

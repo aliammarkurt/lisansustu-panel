@@ -1,5 +1,6 @@
 // Lisansüstü Panel — arayüz
 import { PROGRAMS, TUR_AD, SONUCLU, ADIMLAR, ADIM, KAYIT_DONEMLERI } from './shared.js';
+import { belgeVerisi, BELGE_SABLON, dosyaAdi } from './belge-veri.js';
 
 const DANISMAN = 'Dr. Öğr. Üyesi Ali Ammar Kurt';
 
@@ -577,11 +578,11 @@ function eksikler(s, b) {
 }
 function belgelerHTML(s) {
   return `<section class="panel"><h2>Belgeler</h2>
-    <p class="muted" style="margin:0">Formlar girilen bilgilerle otomatik doldurulur. İmza, karar ve "sayı" alanları komisyon, jüri ve enstitü için boş bırakılır. Word olarak indirme bir sonraki aşamada eklenecek; şimdilik önizleme yapılabilir.</p>
+    <p class="muted" style="margin:0">Formlar girilen bilgilerle otomatik doldurulur. İmza, karar ve "sayı" alanları komisyon, jüri ve enstitü için boş bırakılır. "Word indir" ile enstitünün resmî formu bu bilgilerle doldurulmuş olarak iner; eksik alanlar boş kalır.</p>
     <div class="docs">${BELGELER.map(b => { const e = eksikler(s, b); return `<div class="doc"><span class="no">${b.no}</span><b>${esc(b.ad)}</b>
       ${b.not ? `<span class="muted" style="font-size:13px">${esc(b.not)}</span>` : ''}
       ${e.length ? `<span class="pill wait" style="justify-self:start">Eksik: ${e.map(x => GEREK_AD[x]).join(', ')}</span>` : `<span class="pill ok" style="justify-self:start">Hazır</span>`}
-      <button class="btn small ${e.length ? '' : 'primary'}" data-a="belge" data-id="${b.id}" style="justify-self:start">Önizle</button></div>`; }).join('')}</div>
+      <div class="row" style="gap:6px"><button class="btn small ${e.length ? '' : 'primary'}" data-a="${BELGE_SABLON[b.id].kisiler || b.id === 'teslim' ? 'belge' : 'word'}" data-id="${b.id}">Word indir</button><button class="btn small" data-a="belge" data-id="${b.id}">Önizle</button></div></div>`; }).join('')}</div>
   </section>`;
 }
 const V = (x, w = 30) => x ? `<span class="filled">${esc(x)}</span>` : `<span class="blank">${'.'.repeat(w)}</span>`;
@@ -627,11 +628,36 @@ function modalHTML() {
   const tc = b.id === 'teslim' ? `<div class="panel" style="padding:14px;gap:10px;background:var(--surface-2)"><b>Yalnızca bu formda gerekli bilgiler</b><span class="muted" style="font-size:13.5px">Bu iki bilgi sunucuya gönderilmez ve kaydedilmez; pencereyi kapattığında silinir.</span>
     <div class="grid2" style="gap:10px"><div class="field"><label for="g-tc">T.C. Kimlik No</label><input class="input" id="g-tc" inputmode="numeric" maxlength="11" autocomplete="off" value="${esc(S.gecici?.tc || '')}"></div><div class="field"><label for="g-adres">Posta adresi</label><input class="input" id="g-adres" autocomplete="off" value="${esc(S.gecici?.adres || '')}"></div></div></div>` : '';
   return `<div class="modal" data-a="kapat-bg"><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(b.ad)}">
-    <div class="head"><div><span class="eyebrow">${b.no}</span><h2 style="font-size:20px">${esc(b.ad)}</h2></div><div class="row"><button class="btn" disabled title="Bir sonraki aşamada">Word olarak indir (yakında)</button><button class="btn" data-a="kapat">Kapat</button></div></div>
+    <div class="head"><div><span class="eyebrow">${b.no}</span><h2 style="font-size:20px">${esc(b.ad)}</h2></div><div class="row">${wordDugmeleri(s, b.id)}<button class="btn" data-a="kapat">Kapat</button></div></div>
     ${tc}
-    <p class="muted" style="margin:0;font-size:13.5px">Yeşil alanlar panelde girilen bilgilerden geldi. Word sürümünde enstitünün şablonu bire bir doldurulacak.</p>
+    <p class="muted" style="margin:0;font-size:13.5px">Yeşil alanlar panelde girilen bilgilerden geldi. Word dosyası enstitünün resmî formudur; önizleme yalnızca içeriği gösterir.</p>
     <div class="paper" id="paper">${belgeKagit(s, b.id)}</div>
   </div></div>`;
+}
+function wordDugmeleri(s, id) {
+  const B = BELGE_SABLON[id];
+  if (!B.kisiler) return `<button class="btn primary" data-a="word" data-id="${id}">Word olarak indir</button>`;
+  const L = B.kisiler(s);
+  if (!L.length) return `<span class="muted" style="font-size:13px">Önce ${id === 'oneriDeg' ? 'öneri komisyonunu' : 'jüri üyelerini'} Tez süreci sayfasına gir.</span>`;
+  return L.map((k, i) => `<button class="btn ${i === 0 ? 'primary' : ''}" data-a="word" data-id="${id}" data-k="${i}">Word: ${esc(k.ad)}</button>`).join('');
+}
+async function wordIndir(id, kisiNo) {
+  const s = cur(), B = BELGE_SABLON[id];
+  if (!window.PizZip || !window.docxtemplater) throw new Error('Belge aracı yüklenemedi. Sayfayı yenileyip tekrar dene.');
+  const kisi = B.kisiler ? B.kisiler(s)[kisiNo || 0] : null;
+  const r = await fetch('/sablonlar/' + B.dosya);
+  if (!r.ok) throw new Error('Form şablonu bulunamadı.');
+  const zip = new window.PizZip(await r.arrayBuffer());
+  const doc = new window.docxtemplater(zip, { paragraphLoop: true, linebreaks: true, nullGetter: () => '' });
+  doc.render(belgeVerisi(s, {
+    ...(kisi ? { uyeAd: kisi.ad, uyeKurum: kisi.kurum } : {}),
+    ...(id === 'teslim' ? { tc: S.gecici?.tc || '', adres: S.gecici?.adres || '' } : {}),
+  }));
+  const blob = doc.getZip().generate({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = dosyaAdi(s, id, kisi);
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
 function renderModal() {
   const host = document.getElementById('modalHost');
@@ -815,6 +841,7 @@ document.addEventListener('click', async e => {
         await api(`/ogrenciler/${s.id}/mesajlar`, { method: 'POST', body: { metin: v } }); await yenile(s.id); toast('Not gönderildi', mailNot());
         break; }
       case 'belge': S.modal = { id: el.dataset.id }; S.gecici = {}; renderModal(); return;
+      case 'word': await wordIndir(el.dataset.id, +(el.dataset.k || 0)); toast('Word dosyası indirildi', 'İmza, karar ve sayı alanlarını ilgili kişiler dolduracak.'); return;
       case 'kapat': case 'kapat-bg': S.modal = null; S.gecici = null; renderModal(); return;
       default: return;
     }
