@@ -32,7 +32,7 @@ async function ensureSchema(env) {
   if (schemaReady) return;
   await env.DB.batch(SCHEMA.map(s => env.DB.prepare(s)));
   // Sonradan eklenen sütunlar (varsa hata verir, yok sayılır)
-  for (const sql of [`ALTER TABLE students ADD COLUMN kayit_turu TEXT NOT NULL DEFAULT 'normal'`]) {
+  for (const sql of [`ALTER TABLE students ADD COLUMN kayit_turu TEXT NOT NULL DEFAULT 'normal'`, `ALTER TABLE students ADD COLUMN profil_tamam INTEGER NOT NULL DEFAULT 1`]) {
     try { await env.DB.prepare(sql).run(); } catch {}
   }
   schemaReady = true;
@@ -136,7 +136,7 @@ async function loadStudent(env, id) {
   ]);
   return {
     id: s.id, ad: s.ad, eposta: s.email, no: s.no || '', program: s.program, kayit: s.kayit,
-    donem: s.donem, danismanDonem: s.danisman_donem, statu: s.statu || '', arsiv: !!s.arsiv, kayitTuru: s.kayit_turu || 'normal',
+    donem: s.donem, danismanDonem: s.danisman_donem, statu: s.statu || '', arsiv: !!s.arsiv, kayitTuru: s.kayit_turu || 'normal', profilTamam: s.profil_tamam !== 0,
     davetBekliyor: !s.pass_hash, kvkk: s.kvkk_at,
     tez: { ...bosTez(), ...parse(s.tez, {}) },
     adim: parse(s.adim, {}), adimTarih: parse(s.adim_tarih, {}),
@@ -325,6 +325,32 @@ async function route(req, env, ctx, url) {
     return json({ ok: true, id, link, mailGitti: gitti });
   }
 
+  if (p === '/api/ogrenciler/toplu' && M === 'POST') {
+    if (!isAdv) fail(403, 'Yalnızca danışman öğrenci ekleyebilir.');
+    const b = await body(req);
+    const satirlar = Array.isArray(b.satirlar) ? b.satirlar.slice(0, 60) : [];
+    const kayit = KAYIT_DONEMLERI.includes(b.kayit) ? b.kayit : '2026-2027 Güz';
+    const sonuc = [];
+    for (const sat of satirlar) {
+      const email = normEmail(sat.email);
+      const program = PROGRAMS[sat.program] ? sat.program : 'pdr';
+      if (!validEmail(email)) { sonuc.push({ email: sat.email, durum: 'hata', mesaj: 'Geçersiz e-posta' }); continue; }
+      if (await env.DB.prepare(`SELECT id FROM users WHERE email = ?`).bind(email).first()) { sonuc.push({ email, durum: 'atlandi', mesaj: 'Zaten kayıtlı' }); continue; }
+      const id = uid(), ad = email.split('@')[0];
+      await env.DB.batch([
+        env.DB.prepare(`INSERT INTO users (id, email, ad, role, created_at) VALUES (?,?,?,?,?)`).bind(id, email, ad, 'ogrenci', now()),
+        env.DB.prepare(`INSERT INTO students (user_id, no, program, kayit, donem, danisman_donem, statu, tez, adim, adim_tarih, kayit_turu, profil_tamam) VALUES (?,?,?,?,?,?,?,?,?,?,?,0)`)
+          .bind(id, '', program, kayit, 1, 1, 'Normal öğretim', JSON.stringify(bosTez()), '{}', '{}', 'normal'),
+      ]);
+      const link = await makeToken(env, id, 'invite');
+      const gitti = await sendMail(env, email, 'Lisansüstü Panel davetin', `Merhaba,\n\nDanışmanın ${user.ad} seni Lisansüstü Panel'e davet etti. Bu panelde ders ve tez sürecini takip edebilir, dosyalarını yükleyebilir ve danışmanınla yazışabilirsin.\n\nŞifreni belirlemek için bağlantı (${INVITE_DAYS} gün geçerli):\n${link}\n\nİlk girişte kişisel bilgilerini (ad soyad, öğrenci numarası, program, kayıt dönemi, yarıyıl) tamamlaman istenecek.`);
+      await log(env, id, user.id, 'ogrenci-eklendi', email);
+      sonuc.push({ email, durum: 'eklendi', link, mailGitti: gitti });
+      await new Promise(r => setTimeout(r, 600)); // e-posta hizmetinin saniyedeki gönderim sınırı için
+    }
+    return json({ ok: true, sonuc });
+  }
+
   if ((m = p.match(/^\/api\/ogrenciler\/([\w-]+)$/))) {
     const sid = m[1];
     if (M === 'GET') { await studentOr404(env, user, sid); return json({ ogrenci: await loadStudent(env, sid) }); }
@@ -362,7 +388,7 @@ async function route(req, env, ctx, url) {
       if (!PROGRAMS[b.program] || !KAYIT_DONEMLERI.includes(b.kayit)) fail(400, 'Program ve kayıt dönemi geçersiz.');
       await env.DB.batch([
         env.DB.prepare(`UPDATE users SET ad = ? WHERE id = ?`).bind(ad, sid),
-        env.DB.prepare(`UPDATE students SET no = ?, program = ?, kayit = ?, donem = ?, danisman_donem = ?, statu = ?, kayit_turu = ? WHERE user_id = ?`)
+        env.DB.prepare(`UPDATE students SET no = ?, program = ?, kayit = ?, donem = ?, danisman_donem = ?, statu = ?, kayit_turu = ?, profil_tamam = 1 WHERE user_id = ?`)
           .bind(str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60), kayitTuru(b.kayitTuru), sid),
       ]);
     }

@@ -392,10 +392,11 @@ function kisiselHTML(s) {
   const P = PROGRAMS[s.program], yon = yonetmelik(s.kayit, s.kayitTuru), adv = isAdv();
   const f = (id, lab, val, type = 'text', ro = false) => `<div class="field"><label for="${id}">${lab}</label><input class="input" id="${id}" type="${type}" value="${esc(val)}" ${ro ? 'readonly' : ''}></div>`;
   const sel = (id, lab, opts, val, ro) => `<div class="field"><label for="${id}">${lab}</label><select class="input" id="${id}" ${ro ? 'disabled' : ''}>${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(val) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>`;
-  return `<section class="panel"><h2>Kişisel bilgiler</h2>
+  const ilk = !adv && !s.profilTamam;
+  return `${ilk ? `<section class="celebrate" style="text-align:left">Hoş geldin! Başlamadan önce kişisel bilgilerini tamamla: ad soyad, öğrenci numarası, program, kayıt dönemi ve şu anki yarıyıl. Bu bilgiler ilerleme hesabında ve resmî formlarda kullanılacak.</section>` : ''}<section class="panel"><h2>Kişisel bilgiler</h2>
     <p class="muted" style="margin:0">Bu bilgiler resmî formlara otomatik aktarılır. T.C. kimlik numarası ve posta adresi sistemde tutulmaz; yalnızca ilgili formu hazırlarken tarayıcında girilir.${adv ? '' : ' Yeni döneme geçtiğinde "Şu anki yarıyıl" bilgisini güncellemeyi unutma. E-posta adresin giriş için kullanıldığından onu yalnızca danışmanın değiştirebilir.'}</p>
     <div class="grid2" style="gap:14px">
-      ${f('k-ad', 'Ad soyad', s.ad)}${f('k-no', 'Öğrenci numarası', s.no)}
+      ${f('k-ad', 'Ad soyad', ilk && s.ad === s.eposta.split('@')[0] ? '' : s.ad)}${f('k-no', 'Öğrenci numarası', s.no)}
       ${f('k-eposta', 'E-posta (giriş adresi)', s.eposta, 'email', !adv)}
       ${sel('k-tur', 'Kayıt türü', [['normal', 'Normal kayıt'], ['af', 'Af ile dönen öğrenci']], s.kayitTuru)}
       ${sel('k-kayit', s.kayitTuru === 'af' ? 'Dönüş dönemi' : 'Kayıt dönemi', KAYIT_DONEMLERI.map(x => [x, x]), s.kayit)}
@@ -709,13 +710,26 @@ function ogrencilerHTML() {
   const kart = s => { const p = ilerleme(s), h = hatirlatmalar(s), nb = bek.filter(x => x.s === s).length; return `
     <button class="scard" data-a="ac" data-s="${s.id}">
       <div><div class="nm">${esc(s.ad)}</div><div class="muted" style="font-size:13.5px">${esc(PROGRAMS[s.program].kisa)} · ${s.donem}. yarıyıl${s.no ? ' · ' + esc(s.no) : ''}</div>
-        ${s.kayitTuru === 'af' ? '<span class="pill off" style="margin-top:4px">Af ile dönen</span>' : ''}${s.davetBekliyor ? '<div class="flagnote">• Davet bekliyor (henüz şifre belirlemedi)</div>' : ''}${s.arsiv ? '' : h.map(x => `<div class="flagnote">• ${esc(x)}</div>`).join('')}</div>
+        ${s.kayitTuru === 'af' ? '<span class="pill off" style="margin-top:4px">Af ile dönen</span>' : ''}${s.davetBekliyor ? '<div class="flagnote">• Davet bekliyor (henüz şifre belirlemedi)</div>' : !s.profilTamam ? '<div class="flagnote">• Kişisel bilgilerini henüz tamamlamadı</div>' : ''}${s.arsiv ? '' : h.map(x => `<div class="flagnote">• ${esc(x)}</div>`).join('')}</div>
       <div style="display:grid;gap:6px">${segBar(p, 'mini')}<div class="muted" style="font-size:13px">Sıradaki: ${esc(siradaki(s).b)}</div></div>
       <div style="display:grid;justify-items:end;gap:4px"><span class="p">%${Math.round(p.all)}</span>${nb ? `<span class="pill wait">${nb} onay bekliyor</span>` : ''}${s.arsiv ? '<span class="pill off">Arşiv</span>' : ''}</div>
     </button>`; };
   return `
   <div class="row" style="justify-content:space-between"><div><span class="eyebrow">Danışman paneli</span><h1 style="font-size:30px;margin-top:4px">Öğrencilerim</h1></div>
-    <button class="btn primary" data-a="ekle-ac">${S.ekleAcik ? 'Formu kapat' : '+ Öğrenci ekle'}</button></div>
+    <div class="row"><button class="btn" data-a="toplu-ac">${S.topluAcik ? 'Toplu eklemeyi kapat' : 'Toplu ekle'}</button><button class="btn primary" data-a="ekle-ac">${S.ekleAcik ? 'Formu kapat' : '+ Öğrenci ekle'}</button></div></div>
+  ${S.topluSonuc ? `<section class="panel" style="border-color:var(--accent)"><h2>Toplu ekleme sonucu</h2>
+    <div class="checks">${S.topluSonuc.map(r => `<div class="chk ${r.durum === 'eklendi' ? 'tamam' : 'bekliyor'}"><span class="ic">${r.durum === 'eklendi' ? '✓' : '!'}</span><div>${esc(r.email)}<div class="ref">${r.durum === 'eklendi' ? (r.mailGitti ? 'Eklendi, davet e-postası gönderildi' : 'Eklendi; e-posta gitmedi, bağlantıyı elle iletin') : esc(r.mesaj)}</div></div><span></span></div>`).join('')}</div>
+    ${S.topluSonuc.some(r => r.durum === 'eklendi' && !r.mailGitti) ? `<div class="linkbox"><code id="son-link" style="white-space:pre-wrap">${esc(S.topluSonuc.filter(r => r.link && !r.mailGitti).map(r => r.email + ' : ' + r.link).join('\n'))}</code><button class="btn small" data-a="kopyala-toplu">Kopyala</button></div>` : ''}
+    <button class="linkbtn" data-a="toplu-kapat">Kapat</button></section>` : ''}
+  ${S.topluAcik ? `<section class="panel"><h2>Toplu öğrenci ekle</h2>
+    <p class="muted" style="margin:0">Her satıra bir e-posta adresi yazın. Program varsayılandan farklıysa adresin yanına virgülle <b>pdr</b> ya da <b>aed</b> ekleyin. Öğrenciler ilk girişte ad, numara, kayıt dönemi ve yarıyıl bilgilerini kendileri dolduracak.</p>
+    <div class="field"><label for="t-liste">E-posta adresleri</label><textarea class="input" id="t-liste" rows="8" placeholder="ogrenci1@ornek.edu.tr&#10;ogrenci2@ornek.edu.tr, aed&#10;ogrenci3@gmail.com"></textarea></div>
+    <div class="grid2" style="gap:12px">
+      <div class="field"><label for="t-program">Varsayılan program</label><select class="input" id="t-program">${Object.entries(PROGRAMS).map(([k, v]) => `<option value="${k}">${esc(v.ad)}</option>`).join('')}</select></div>
+      <div class="field"><label for="t-kayit">Varsayılan kayıt dönemi (öğrenci değiştirebilir)</label><select class="input" id="t-kayit">${KAYIT_DONEMLERI.map(x => `<option ${x === '2026-2027 Güz' ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+    </div>
+    <div class="row"><button class="btn primary" data-a="toplu-ekle" ${S.mesgul ? 'disabled' : ''}>${S.mesgul ? 'Ekleniyor…' : 'Hepsini ekle ve davet gönder'}</button><span class="muted" style="font-size:13px">Her öğrenci için yaklaşık 1 saniye sürer.</span></div>
+  </section>` : ''}
   ${S.sonLink ? `<section class="panel" style="border-color:var(--accent)"><b>${esc(S.sonLink.ad)} için bağlantı</b>
     <span class="muted" style="font-size:13.5px">${S.sonLink.mailGitti ? 'Bağlantı öğrenciye e-postayla gönderildi. İsterseniz aşağıdan kopyalayıp ayrıca iletebilirsiniz.' : 'E-posta gönderimi henüz ayarlı olmadığı için bağlantıyı kopyalayıp öğrenciye siz iletin.'}</span>
     <div class="linkbox"><code id="son-link">${esc(S.sonLink.link)}</code><button class="btn small" data-a="kopyala">Kopyala</button></div>
@@ -825,7 +839,26 @@ document.addEventListener('click', async e => {
       case 'nav': if (el.dataset.k === 'hatirlatma') S.hatirlatma = null; S.section = el.dataset.k; S.mopen = false; S.notEdit = null; S.ekleKod = null; if (isAdv() && ['ogrenciler', 'onaylar'].includes(el.dataset.k)) S.viewing = null; scrollTo(0, 0); break;
       case 'hatirlatma-gonder': { const r = await api('/hatirlatmalar/gonder', { method: 'POST', body: {} }); S.hatirlatma = null; toast(`${r.gonderilen} hatırlatma gönderildi`); break; }
       case 'ac': S.viewing = el.dataset.s; S.section = el.dataset.k || 'genel'; scrollTo(0, 0); break;
-      case 'ekle-ac': S.ekleAcik = !S.ekleAcik; break;
+      case 'ekle-ac': S.ekleAcik = !S.ekleAcik; S.topluAcik = false; break;
+      case 'toplu-ac': S.topluAcik = !S.topluAcik; S.ekleAcik = false; break;
+      case 'toplu-kapat': S.topluSonuc = null; break;
+      case 'kopyala-toplu': {
+        const t = document.getElementById('son-link').textContent;
+        try { await navigator.clipboard.writeText(t); toast('Bağlantılar kopyalandı'); } catch { toast('Kopyalanamadı', 'Metni seçip Ctrl/Cmd + C ile kopyalayın.'); }
+        return; }
+      case 'toplu-ekle': {
+        const prog = val('t-program'), kayit = val('t-kayit');
+        const satirlar = val('t-liste').split(/[\n;]+/).map(x => x.trim()).filter(Boolean).map(x => {
+          const [email, p] = x.split(/[,\s]+/);
+          const k = (p || '').toLowerCase();
+          return { email, program: k === 'aed' || k === 'pdr' ? k : prog };
+        });
+        if (!satirlar.length) { toast('Liste boş', 'Her satıra bir e-posta adresi yazın.'); return; }
+        S.mesgul = true; render();
+        try { const r = await api('/ogrenciler/toplu', { method: 'POST', body: { satirlar, kayit } }); S.topluSonuc = r.sonuc; S.topluAcik = false; await yukleHepsi();
+          toast(`${r.sonuc.filter(x => x.durum === 'eklendi').length} öğrenci eklendi`); }
+        finally { S.mesgul = false; }
+        break; }
       case 'link-kapat': S.sonLink = null; break;
       case 'kopyala': {
         const t = S.sonLink?.link || '';
@@ -846,7 +879,7 @@ document.addEventListener('click', async e => {
         const b = isAdv()
           ? { ad: val('k-ad'), eposta: val('k-eposta'), no: val('k-no'), program: val('k-program'), kayit: val('k-kayit'), kayitTuru: val('k-tur'), donem: +val('k-donem'), danismanDonem: +val('k-ddonem'), statu: val('k-statu'), arsiv: document.getElementById('k-arsiv')?.checked }
           : { ad: val('k-ad'), no: val('k-no'), program: val('k-program'), kayit: val('k-kayit'), kayitTuru: val('k-tur'), donem: +val('k-donem'), danismanDonem: +val('k-ddonem'), statu: val('k-statu') };
-        await api(`/ogrenciler/${s.id}/profil`, { method: 'PUT', body: b }); if (!isAdv()) S.ben.ad = b.ad; await yenile(s.id); toast('Kişisel bilgiler kaydedildi');
+        await api(`/ogrenciler/${s.id}/profil`, { method: 'PUT', body: b }); if (!isAdv()) S.ben.ad = b.ad; const ilkKayit = !isAdv() && !s.profilTamam; await yenile(s.id); toast('Kişisel bilgiler kaydedildi', ilkKayit ? 'Şimdi derslerini ekleyebilirsin.' : ''); if (ilkKayit) S.section = 'dersler';
         break; }
       case 'kaydet-tez': {
         const t = JSON.parse(JSON.stringify(s.tez));
@@ -996,7 +1029,7 @@ async function baslat() {
     S.ben = me.kullanici; S.mailVar = me.mailVar;
     await yukleHepsi();
     S.ekran = 'uygulama';
-    S.section = isAdv() ? 'ogrenciler' : 'genel';
+    S.section = isAdv() ? 'ogrenciler' : (S.students[0] && !S.students[0].profilTamam ? 'kisisel' : 'genel');
   } catch {
     S.ekran = 'giris';
   }
