@@ -57,8 +57,11 @@ function temaUygula(t) { document.documentElement.dataset.theme = t; try { local
 /* ======================== KURAL MOTORU ======================== */
 function yonetmelik(kayit, tur) {
   const sira = d => KAYIT_DONEMLERI.indexOf(d);
+  // Yüklenen yönetmeliklerden, öğrencinin kayıt döneminde yürürlükte olan en yenisi
+  const uygun = (S.yonetmelikler || []).filter(y => sira(y.ilkDonem) <= sira(kayit)).sort((a, b) => sira(b.ilkDonem) - sira(a.ilkDonem) || b.id - a.id)[0];
+  if (tur === 'af') return { ad: 'Af kapsamında dönüş', not: `Dönüş dönemi: ${kayit}. Süreler ve uygulanacak hükümler enstitü kararına göre; panel ders ve tez koşullarını yönetmeliğe göre izler.`, id: uygun?.id };
+  if (uygun) return { ad: uygun.ad, not: '', id: uygun.id };
   if (tur !== 'af' && sira(kayit) >= sira(AYAR.yonetmelik.ilkDonem)) return { ad: AYAR.yonetmelik.ad, not: '' };
-  if (tur === 'af') return { ad: 'Af kapsamında dönüş', not: `Dönüş dönemi: ${kayit}. Süreler ve uygulanacak hükümler enstitü kararına göre; panel ders ve tez koşullarını yönetmeliğe göre izler.` };
   if (kayit >= '2026-2027') return { ad: '28/6/2026 tarihli yönetmelik', not: '' };
   if (kayit === '2025-2026 Bahar') return { ad: '14/12/2025 tarihli yönetmelik', not: 'Geçici Madde 1 gereği' };
   return { ad: '24/9/2023 tarihli yönetmelik', not: 'Geçici Madde 1 gereği; kurallar o yönetmeliğe göre doğrulanacak' };
@@ -399,6 +402,7 @@ function heroHTML(s) {
     <div class="next"><div class="dot">→</div><div><span class="eyebrow">${isAdv() ? 'Sıradaki adım' : 'Sıradaki adımın'}</span><b>${esc(nx.b)}</b><span class="muted" style="font-size:14px">${esc(nx.t)}</span></div><button class="btn small" data-a="nav" data-k="${nx.sec}">Git</button></div>
   </section>`;
 }
+const yonLink = y => y.id ? ` <a class="linkbtn" href="/api/yonetmelikler/${y.id}" target="_blank" rel="noopener">PDF'i aç ↗</a>` : '';
 function genelHTML(s) {
   const p = ilerleme(s), a = p.a, hat = hatirlatmalar(s), yon = yonetmelik(s.kayit, s.kayitTuru);
   const satir = x => `<div style="display:grid;gap:5px"><div class="row" style="justify-content:space-between"><span>${esc(x.ad)}</span><span class="mono muted">%${Math.round(x.all * 100)}</span></div><div class="meter"><i class="p" style="width:${x.all * 100}%"></i><i style="width:${x.ok * 100}%"></i></div></div>`;
@@ -412,7 +416,7 @@ function genelHTML(s) {
     <section class="panel"><h2>Aşamalar</h2>${p.seg.map(satir).join('')}</section>
     <section class="panel"><h2>${isAdv() ? 'Notlar' : 'Bilmen gerekenler'}</h2>
       <div class="checks">
-        <div class="chk surec"><span class="ic">i</span><div>Uygulanan yönetmelik: <b>${esc(yon.ad)}</b><div class="ref">${esc(yon.not || 'Kayıt dönemine göre belirlendi')}</div></div><span></span></div>
+        <div class="chk surec"><span class="ic">i</span><div>Uygulanan yönetmelik: <b>${esc(yon.ad)}</b>${yonLink(yon)}<div class="ref">${esc(yon.not || 'Kayıt dönemine göre belirlendi')}</div></div><span></span></div>
         ${hat.map(h => `<div class="chk surec"><span class="ic">!</span><div>${esc(h)}</div><span></span></div>`).join('') || `<div class="chk tamam"><span class="ic">✓</span><div>Süreye bağlı hatırlatma yok. Her şey yolunda görünüyor.</div><span></span></div>`}
         <div class="chk bekliyor"><span class="ic">✉</span><div>${isAdv() ? 'Öğrenci bir adımı onaya gönderdiğinde e-posta alırsınız.' : 'Danışmanın bir adımı onayladığında veya yorum yazdığında e-posta bildirimi alırsın.'}</div><span></span></div>
       </div>
@@ -607,7 +611,7 @@ function mezuniyetHTML(s) {
   const L = kontroller(s), n = L.filter(x => x.d === 'tamam').length;
   const icn = { tamam: '✓', surec: '…', bekliyor: '' };
   return `<section class="panel"><div class="row" style="justify-content:space-between"><h2>Mezuniyet koşulları</h2><span class="pill ok">${n} / ${L.length} tamam</span></div>
-    <p class="muted" style="margin:0">Mersin Üniversitesi Lisansüstü Eğitim-Öğretim ve Sınav Yönetmeliği'ne göre otomatik hesaplanır. Uygulanan yönetmelik: ${esc(yonetmelik(s.kayit, s.kayitTuru).ad)}.</p>
+    <p class="muted" style="margin:0">Mersin Üniversitesi Lisansüstü Eğitim-Öğretim ve Sınav Yönetmeliği'ne göre otomatik hesaplanır. Uygulanan yönetmelik: ${esc(yonetmelik(s.kayit, s.kayitTuru).ad)}.${yonLink(yonetmelik(s.kayit, s.kayitTuru))}</p>
     <div class="checks">${L.map(x => `<div class="chk ${x.d}"><span class="ic">${icn[x.d]}</span><div>${esc(x.ad)}<div class="ref">${esc(x.ref)}</div></div><span class="val">${esc(x.val)}</span></div>`).join('')}</div>
   </section>`;
 }
@@ -828,10 +832,23 @@ function ayarlarHTML() {
   <section class="panel"><h2>Danışman ve enstitü</h2><div class="grid3">
       ${inp('danisman.unvan', 'Danışman unvanı', a.danisman.unvan)}${inp('danisman.adSoyad', 'Danışman adı soyadı', a.danisman.adSoyad)}${inp('danisman.kurum', 'Kurum', a.danisman.kurum)}</div>
     <div class="grid2" style="gap:12px">${inp('enstitu.ad', 'Enstitü adı', a.enstitu.ad)}${inp('enstitu.mudur', 'Enstitü müdürü (unvanıyla)', a.enstitu.mudur, 'Gelecekte müdür imzalı formlar eklenirse kullanılacak.')}</div></section>
-  <section class="panel"><h2>Yönetmelik</h2>
-    <div class="grid2" style="gap:12px">${inp('yonetmelik.ad', 'Güncel yönetmeliğin adı', a.yonetmelik.ad)}
-      <div class="field"><label for="ay-yonetmelik.ilkDonem">Hangi kayıt döneminden itibaren uygulanıyor</label><select class="input" id="ay-yonetmelik.ilkDonem" data-ayar="yonetmelik.ilkDonem">${KAYIT_DONEMLERI.map(d => `<option ${d === a.yonetmelik.ilkDonem ? 'selected' : ''}>${d}</option>`).join('')}</select><span class="muted" style="font-size:12px">Bu dönemden önce kayıt olanlarda önceki yönetmeliklerin adı görünür.</span></div></div>
-    <h3 style="margin-top:6px">Mezuniyet ve süre koşulları</h3>
+  <section class="panel"><h2>Yönetmelikler</h2>
+    <p class="muted" style="margin:0">Yeni yönetmelik çıktığında PDF'ini buraya yükleyin. Her öğrenciye kayıt döneminde yürürlükte olan yönetmelik otomatik bağlanır ve öğrenci kendi panelinden açıp okuyabilir. Eski yönetmelikler arşivde kalır.</p>
+    ${(S.yonetmelikler || []).length ? `<div class="tablewrap"><table><thead><tr><th>Yönetmelik</th><th>Geçerli olduğu ilk kayıt dönemi</th><th>Yüklenme</th><th></th></tr></thead><tbody>
+      ${S.yonetmelikler.map(y => `<tr><td>${esc(y.ad)}</td><td class="mono" style="white-space:nowrap">${esc(y.ilkDonem)}</td><td class="muted" style="white-space:nowrap">${esc(tarihFmt(y.tarih))}</td>
+        <td><span class="row" style="flex-wrap:nowrap;gap:6px"><a class="btn small" href="/api/yonetmelikler/${y.id}" target="_blank" rel="noopener">Aç</a><button class="btn small" data-a="yonetmelik-sil" data-id="${y.id}">Sil</button></span></td></tr>`).join('')}
+    </tbody></table></div>` : '<p class="muted" style="margin:0">Henüz yönetmelik yüklenmedi. Yükleyene kadar öğrencilerde yönetmeliğin yalnızca adı görünür.</p>'}
+    <div class="panel" style="padding:16px;background:var(--surface-2)"><h3>Yeni yönetmelik yükle</h3>
+      <div class="grid2" style="gap:12px">
+        <div class="field" style="grid-column:1/-1"><label for="yy-dosya">PDF dosyası</label><input class="input" id="yy-dosya" type="file" accept="application/pdf,.pdf"></div>
+        <div class="field"><label for="yy-ad">Yönetmeliğin adı</label><input class="input" id="yy-ad" placeholder="ör. 28/6/2026 tarihli Lisansüstü Eğitim-Öğretim ve Sınav Yönetmeliği"></div>
+        <div class="field"><label for="yy-donem">Hangi kayıt döneminden itibaren uygulanıyor</label><select class="input" id="yy-donem">${KAYIT_DONEMLERI.map(d => `<option ${d === a.yonetmelik.ilkDonem ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
+      </div>
+      <div class="row"><button class="btn primary" data-a="yonetmelik-yukle" ${S.mesgul ? 'disabled' : ''}>Yükle</button><span class="muted" style="font-size:13px">Geçiş hükümlerine dikkat: yeni yönetmelik genellikle yalnızca belirli bir dönemden sonra kayıt olanlara uygulanır.</span></div>
+    </div>
+  </section>
+  <section class="panel"><h2>Mezuniyet ve süre koşulları</h2>
+    ${S.kuralUyari ? `<div class="celebrate" style="text-align:left;background:var(--sun-soft);color:var(--ink)">Yeni yönetmelik yüklendi. Aşağıdaki sayısal koşulları yeni yönetmelikle karşılaştırın; değişen varsa güncelleyip "Ayarları kaydet"e basın.</div>` : ''}
     <div class="grid3">${KURAL_ETIKET.map(([k, e, m]) => inp(`kural.${k}`, e, a.kural[k], `${m}${V && V.kural[k] !== a.kural[k] ? ` · varsayılan: ${V.kural[k]}` : ''}`, 'number')).join('')}</div></section>
   <section class="panel"><h2>Açıklama metinleri</h2>
     <div class="field"><label for="ay-metin.faaliyet">Akademik faaliyet şartı (Senato esasları)</label><textarea class="input" id="ay-metin.faaliyet" data-ayar="metin.faaliyet" rows="3">${esc(a.metin.faaliyet)}</textarea><span class="muted" style="font-size:12px">Öğrencilerin "Tez süreci"nde "Akademik faaliyet şartı" adımının altında görünür.</span></div></section>
@@ -907,6 +924,19 @@ document.addEventListener('click', async e => {
       case 'cikis': await api('/cikis', { method: 'POST', body: {} }); S.ben = null; S.students = []; S.ekran = 'giris'; S.modal = null; break;
       case 'toggle': if (innerWidth <= 760) S.mopen = !S.mopen; else S.collapsed = !S.collapsed; break;
       case 'nav': if (el.dataset.k === 'hatirlatma') S.hatirlatma = null; S.section = el.dataset.k; S.mopen = false; S.notEdit = null; S.ekleKod = null; if (isAdv() && ['ogrenciler', 'onaylar'].includes(el.dataset.k)) S.viewing = null; scrollTo(0, 0); break;
+      case 'yonetmelik-yukle': {
+        const f = document.getElementById('yy-dosya').files[0], ad = val('yy-ad').trim(), donem = val('yy-donem');
+        if (!f) { toast('PDF dosyası seçin'); return; }
+        if (!ad) { toast('Yönetmeliğin adını yazın'); return; }
+        const fd = new FormData(); fd.append('dosya', f); fd.append('ad', ad); fd.append('ilkDonem', donem);
+        S.mesgul = true; render();
+        try { await api('/yonetmelikler', { method: 'POST', body: fd }); await ayarYukle(); S.kuralUyari = true; toast('Yönetmelik yüklendi', 'Mezuniyet koşullarını kontrol etmeyi unutmayın.'); }
+        finally { S.mesgul = false; }
+        break; }
+      case 'yonetmelik-sil': {
+        if (el.dataset.onay !== '1') { el.dataset.onay = '1'; el.textContent = 'Emin misiniz?'; el.classList.add('sun'); setTimeout(() => { if (el.isConnected) { el.dataset.onay = ''; el.textContent = 'Sil'; el.classList.remove('sun'); } }, 3000); return; }
+        await api(`/yonetmelikler/${el.dataset.id}`, { method: 'DELETE' }); await ayarYukle(); toast('Yönetmelik silindi');
+        break; }
       case 'ayar-kaydet': {
         const yeni = JSON.parse(JSON.stringify(AYAR));
         document.querySelectorAll('[data-ayar]').forEach(i => {
@@ -915,7 +945,7 @@ document.addEventListener('click', async e => {
           o[yol[yol.length - 1]] = i.type === 'number' ? Number(i.value) : i.value;
         });
         const r = await api('/ayarlar', { method: 'PUT', body: yeni });
-        AYAR = ayarUygula(ayarBirlestir(r.ayar)); await yukleHepsi();
+        AYAR = ayarUygula(ayarBirlestir(r.ayar)); S.kuralUyari = false; await yukleHepsi();
         toast('Ayarlar kaydedildi', 'Tüm öğrencilerin hesapları ve formları güncellendi.');
         break; }
       case 'hatirlatma-gonder': { const r = await api('/hatirlatmalar/gonder', { method: 'POST', body: {} }); S.hatirlatma = null; toast(`${r.gonderilen} hatırlatma gönderildi`); break; }
@@ -1109,6 +1139,9 @@ document.addEventListener('submit', async e => {
 });
 
 /* ======================== BAŞLANGIÇ ======================== */
+async function ayarYukle() {
+  try { const a = await api('/ayarlar'); AYAR = ayarUygula(ayarBirlestir(a.ayar)); S.varsayilan = a.varsayilan; S.yonetmelikler = a.yonetmelikler || []; } catch {}
+}
 async function baslat() {
   const path = location.pathname;
   const q = new URLSearchParams(location.search);
@@ -1126,7 +1159,7 @@ async function baslat() {
   try {
     const me = await api('/ben', { anon: true });
     S.ben = me.kullanici; S.mailVar = me.mailVar;
-    try { const a = await api('/ayarlar'); AYAR = ayarUygula(ayarBirlestir(a.ayar)); S.varsayilan = a.varsayilan; } catch {}
+    await ayarYukle();
     await yukleHepsi();
     S.ekran = 'uygulama';
     S.section = isAdv() ? 'ogrenciler' : (S.students[0] && !S.students[0].profilTamam ? 'kisisel' : 'genel');

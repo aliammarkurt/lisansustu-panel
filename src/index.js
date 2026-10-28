@@ -20,6 +20,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS tokens (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, type TEXT NOT NULL, expires_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS attempts (email TEXT NOT NULL, at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS yonetmelikler (id INTEGER PRIMARY KEY AUTOINCREMENT, ad TEXT NOT NULL, ilk_donem TEXT NOT NULL, r2_key TEXT NOT NULL, boyut INTEGER NOT NULL, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS ayarlar (anahtar TEXT PRIMARY KEY, deger TEXT NOT NULL, updated_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS reminders (student_id TEXT NOT NULL, rkey TEXT NOT NULL, sent_at TEXT NOT NULL, PRIMARY KEY (student_id, rkey))`,
   `CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, student_id TEXT, actor TEXT, action TEXT, detail TEXT, created_at TEXT NOT NULL)`,
@@ -296,7 +297,41 @@ async function route(req, env, ctx, url) {
   }
 
   if (p === '/api/ayarlar' && M === 'GET') {
-    return json({ ayar, varsayilan: AYAR_VARSAYILAN });
+    const yonetmelikler = (await env.DB.prepare(`SELECT id, ad, ilk_donem ilkDonem, boyut, created_at tarih FROM yonetmelikler ORDER BY id DESC`).all()).results;
+    return json({ ayar, varsayilan: AYAR_VARSAYILAN, yonetmelikler });
+  }
+  /* ---- Yönetmelik arşivi ---- */
+  if (p === '/api/yonetmelikler' && M === 'POST') {
+    if (!isAdv) fail(403, 'Yönetmeliği yalnızca danışman yükleyebilir.');
+    if (!env.FILES) fail(503, 'Dosya depolama bağlı değil.');
+    const form = await req.formData();
+    const f = form.get('dosya'), ad = str(form.get('ad'), 300), ilkDonem = String(form.get('ilkDonem') || '');
+    if (!f || typeof f === 'string') fail(400, 'PDF dosyası seçilmedi.');
+    if (!/\.pdf$/i.test(f.name) && f.type !== 'application/pdf') fail(400, 'Yönetmelik PDF olarak yüklenmeli.');
+    if (f.size > 20 * 1024 * 1024) fail(413, 'Dosya 20 MB\'tan büyük olamaz.');
+    if (!ad) fail(400, 'Yönetmeliğin adını yazın.');
+    if (!KAYIT_DONEMLERI.includes(ilkDonem)) fail(400, 'Geçerli olduğu ilk kayıt dönemini seçin.');
+    const key = `yonetmelik/${uid()}.pdf`;
+    await env.FILES.put(key, f.stream(), { httpMetadata: { contentType: 'application/pdf' } });
+    await env.DB.prepare(`INSERT INTO yonetmelikler (ad, ilk_donem, r2_key, boyut, created_at) VALUES (?,?,?,?,?)`).bind(ad, ilkDonem, key, f.size, now()).run();
+    await log(env, null, user.id, 'yonetmelik-yuklendi', ad);
+    return json({ ok: true });
+  }
+  if ((m = p.match(/^\/api\/yonetmelikler\/(\d+)$/))) {
+    const y = await env.DB.prepare(`SELECT * FROM yonetmelikler WHERE id = ?`).bind(+m[1]).first();
+    if (!y) fail(404, 'Yönetmelik bulunamadı.');
+    if (M === 'GET') {
+      const o = env.FILES && await env.FILES.get(y.r2_key);
+      if (!o) fail(404, 'Dosya bulunamadı.');
+      const ad = y.ad.replace(/[^\p{L}\p{N} .-]/gu, '').slice(0, 120) || 'yonetmelik';
+      return new Response(o.body, { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(ad)}.pdf`, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' } });
+    }
+    if (M === 'DELETE') {
+      if (!isAdv) fail(403, 'Yetkin yok.');
+      if (env.FILES) await env.FILES.delete(y.r2_key);
+      await env.DB.prepare(`DELETE FROM yonetmelikler WHERE id = ?`).bind(y.id).run();
+      return json({ ok: true });
+    }
   }
   if (p === '/api/ayarlar' && M === 'PUT') {
     if (!isAdv) fail(403, 'Ayarları yalnızca danışman değiştirebilir.');
