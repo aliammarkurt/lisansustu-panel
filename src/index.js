@@ -2,7 +2,7 @@
 // API (/api/*) burada; arayüz dosyaları public/ klasöründen sunulur.
 
 // Lisansüstü Panel — © 2026 Dr. Öğr. Üyesi Ali Ammar Kurt. Tüm hakları saklıdır.
-import { PROGRAMS, ADIM, SONUCLU, KAYIT_DONEMLERI, bosTez, TELIF } from '../public/shared.js';
+import { PROGRAMS, ADIM, SONUCLU, KAYIT_DONEMLERI, bosTez, TELIF, ayarBirlestir, ayarUygula, AYAR_VARSAYILAN } from '../public/shared.js';
 import { hatirlatmalar, haftalikOzet } from './hatirlatma.js';
 
 const SESSION_DAYS = 30;
@@ -20,6 +20,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS tokens (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, type TEXT NOT NULL, expires_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS attempts (email TEXT NOT NULL, at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS ayarlar (anahtar TEXT PRIMARY KEY, deger TEXT NOT NULL, updated_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS reminders (student_id TEXT NOT NULL, rkey TEXT NOT NULL, sent_at TEXT NOT NULL, PRIMARY KEY (student_id, rkey))`,
   `CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, student_id TEXT, actor TEXT, action TEXT, detail TEXT, created_at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_courses_s ON courses(student_id)`,
@@ -37,6 +38,13 @@ async function ensureSchema(env) {
     try { await env.DB.prepare(sql).run(); } catch {}
   }
   schemaReady = true;
+}
+
+/* ---------------- Ayarlar ---------------- */
+export async function getAyar(env) {
+  const r = await env.DB.prepare(`SELECT deger FROM ayarlar WHERE anahtar = 'genel'`).first();
+  let k = null; try { k = r ? JSON.parse(r.deger) : null; } catch {}
+  return ayarUygula(ayarBirlestir(k));
 }
 
 /* ---------------- Yardımcılar ---------------- */
@@ -127,7 +135,7 @@ async function makeToken(env, userId, type) {
 
 /* ---------------- Öğrenci verisi ---------------- */
 const parse = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d; } };
-async function loadStudent(env, id) {
+async function loadStudent(env, id, ayar) {
   const s = await env.DB.prepare(`SELECT u.id, u.email, u.ad, u.pass_hash, st.* FROM users u JOIN students st ON st.user_id = u.id WHERE u.id = ?`).bind(id).first();
   if (!s) return null;
   const [c, f, m] = await env.DB.batch([
@@ -139,7 +147,7 @@ async function loadStudent(env, id) {
     id: s.id, ad: s.ad, eposta: s.email, no: s.no || '', program: s.program, kayit: s.kayit,
     donem: s.donem, danismanDonem: s.danisman_donem, statu: s.statu || '', arsiv: !!s.arsiv, kayitTuru: s.kayit_turu || 'normal', profilTamam: s.profil_tamam !== 0, foto: s.foto_v || 0,
     davetBekliyor: !s.pass_hash, kvkk: s.kvkk_at,
-    tez: { ...bosTez(), ...parse(s.tez, {}) },
+    tez: (() => { const t = { ...bosTez(), ...parse(s.tez, {}) }; if (ayar) t.juri = [{ u: ayar.danisman.unvan, a: ayar.danisman.adSoyad, k: ayar.danisman.kurum }, ...t.juri.slice(1)]; return t; })(),
     adim: parse(s.adim, {}), adimTarih: parse(s.adim_tarih, {}),
     dersler: c.results.map(r => ({ id: r.id, kod: r.kod, donem: r.donem, durum: r.durum, not: r.notu, final: r.final, sonuc: r.sonuc, kaynak: r.kaynak })),
     dosyalar: f.results.map(r => ({ id: r.id, v: r.v, ad: r.ad, boyut: r.boyut, tarih: r.created_at, yorum: r.yorum || '' })),
@@ -162,7 +170,7 @@ const kayitTuru = v => v === 'af' ? 'af' : 'normal';
 async function gunlukCalisma(env) {
   await ensureSchema(env);
   if (!env.RESEND_API_KEY) return { atlandi: 'E-posta ayarlı değil' };
-  const r = await hatirlatmalar(env, { gonder: true, sendMail });
+  const r = await hatirlatmalar(env, { gonder: true, sendMail, ayar: await getAyar(env) });
   if (r.pazartesi) {
     const ozet = await haftalikOzet(env);
     if (ozet) await sendMail(env, await advisorEmail(env), 'Lisansüstü Panel: haftalık özet', ozet);
@@ -272,6 +280,7 @@ async function route(req, env, ctx, url) {
   const user = await currentUser(req, env);
   if (!user) fail(401, 'Oturumun sona ermiş. Lütfen tekrar giriş yap.');
   const isAdv = user.role === 'danisman';
+  const ayar = await getAyar(env);
 
   if (p === '/api/ben' && M === 'GET') {
     return json({ kullanici: { id: user.id, ad: user.ad, email: user.email, rol: user.role }, mailVar: !!env.RESEND_API_KEY });
@@ -286,15 +295,32 @@ async function route(req, env, ctx, url) {
     return json({ ok: true });
   }
 
+  if (p === '/api/ayarlar' && M === 'GET') {
+    return json({ ayar, varsayilan: AYAR_VARSAYILAN });
+  }
+  if (p === '/api/ayarlar' && M === 'PUT') {
+    if (!isAdv) fail(403, 'Ayarları yalnızca danışman değiştirebilir.');
+    const b = await body(req);
+    const temiz = ayarBirlestir(b);
+    const metinAlan = o => { for (const k of Object.keys(o)) if (typeof o[k] === 'string') o[k] = str(o[k], 600); };
+    metinAlan(temiz.danisman); metinAlan(temiz.enstitu); metinAlan(temiz.yonetmelik); metinAlan(temiz.metin);
+    for (const pr of Object.values(temiz.programlar)) metinAlan(pr);
+    if (!temiz.danisman.adSoyad) fail(400, 'Danışman adı boş olamaz.');
+    for (const pr of Object.values(temiz.programlar)) if (!pr.abd || !pr.baskan) fail(400, 'Anabilim dalı ve başkan adı boş olamaz.');
+    if (!KAYIT_DONEMLERI.includes(temiz.yonetmelik.ilkDonem)) temiz.yonetmelik.ilkDonem = AYAR_VARSAYILAN.yonetmelik.ilkDonem;
+    await env.DB.prepare(`INSERT INTO ayarlar (anahtar, deger, updated_at) VALUES ('genel', ?, ?) ON CONFLICT(anahtar) DO UPDATE SET deger = excluded.deger, updated_at = excluded.updated_at`).bind(JSON.stringify(temiz), now()).run();
+    await log(env, null, user.id, 'ayarlar-guncellendi', '');
+    return json({ ok: true, ayar: ayarUygula(temiz) });
+  }
   if (p === '/api/hatirlatmalar' && M === 'GET') {
     if (!isAdv) fail(403, 'Yetkin yok.');
-    const r = await hatirlatmalar(env, { gonder: false });
+    const r = await hatirlatmalar(env, { gonder: false, ayar });
     return json({ ...r, mailVar: !!env.RESEND_API_KEY });
   }
   if (p === '/api/hatirlatmalar/gonder' && M === 'POST') {
     if (!isAdv) fail(403, 'Yetkin yok.');
     if (!env.RESEND_API_KEY) fail(400, 'E-posta gönderimi ayarlı değil.');
-    const r = await hatirlatmalar(env, { gonder: true, sendMail });
+    const r = await hatirlatmalar(env, { gonder: true, sendMail, ayar });
     return json({ ok: true, gonderilen: r.liste.length });
   }
   if (p === '/api/ogrenciler' && M === 'GET') {
@@ -302,7 +328,7 @@ async function route(req, env, ctx, url) {
       ? (await env.DB.prepare(`SELECT user_id FROM students ORDER BY arsiv, user_id`).all()).results.map(r => r.user_id)
       : [user.id];
     const list = [];
-    for (const id of ids) { const s = await loadStudent(env, id); if (s) list.push(s); }
+    for (const id of ids) { const s = await loadStudent(env, id, ayar); if (s) list.push(s); }
     return json({ ogrenciler: list });
   }
   if (p === '/api/ogrenciler' && M === 'POST') {
@@ -318,7 +344,7 @@ async function route(req, env, ctx, url) {
     await env.DB.batch([
       env.DB.prepare(`INSERT INTO users (id, email, ad, role, created_at) VALUES (?,?,?,?,?)`).bind(id, email, ad, 'ogrenci', now()),
       env.DB.prepare(`INSERT INTO students (user_id, no, program, kayit, donem, danisman_donem, statu, tez, adim, adim_tarih, kayit_turu) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-        .bind(id, str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60) || 'Normal öğretim', JSON.stringify(bosTez()), '{}', '{}', kayitTuru(b.kayitTuru)),
+        .bind(id, str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60) || 'Normal öğretim', JSON.stringify(bosTez(ayar)), '{}', '{}', kayitTuru(b.kayitTuru)),
     ]);
     const link = await makeToken(env, id, 'invite');
     const gitti = await sendMail(env, email, 'Lisansüstü Panel davetin', `Merhaba ${ad},\n\nDanışmanın ${user.ad} seni Lisansüstü Panel'e davet etti. Bu panelde ders ve tez sürecini takip edebilir, dosyalarını yükleyebilir ve danışmanınla yazışabilirsin.\n\nŞifreni belirlemek için bağlantı (${INVITE_DAYS} gün geçerli):\n${link}`);
@@ -341,7 +367,7 @@ async function route(req, env, ctx, url) {
       await env.DB.batch([
         env.DB.prepare(`INSERT INTO users (id, email, ad, role, created_at) VALUES (?,?,?,?,?)`).bind(id, email, ad, 'ogrenci', now()),
         env.DB.prepare(`INSERT INTO students (user_id, no, program, kayit, donem, danisman_donem, statu, tez, adim, adim_tarih, kayit_turu, profil_tamam) VALUES (?,?,?,?,?,?,?,?,?,?,?,0)`)
-          .bind(id, '', program, kayit, 1, 1, 'Normal öğretim', JSON.stringify(bosTez()), '{}', '{}', 'normal'),
+          .bind(id, '', program, kayit, 1, 1, 'Normal öğretim', JSON.stringify(bosTez(ayar)), '{}', '{}', 'normal'),
       ]);
       const link = await makeToken(env, id, 'invite');
       const gitti = await sendMail(env, email, 'Lisansüstü Panel davetin', `Merhaba,\n\nDanışmanın ${user.ad} seni Lisansüstü Panel'e davet etti. Bu panelde ders ve tez sürecini takip edebilir, dosyalarını yükleyebilir ve danışmanınla yazışabilirsin.\n\nŞifreni belirlemek için bağlantı (${INVITE_DAYS} gün geçerli):\n${link}\n\nİlk girişte kişisel bilgilerini (ad soyad, öğrenci numarası, program, kayıt dönemi, yarıyıl) tamamlaman istenecek.`);
@@ -354,7 +380,7 @@ async function route(req, env, ctx, url) {
 
   if ((m = p.match(/^\/api\/ogrenciler\/([\w-]+)$/))) {
     const sid = m[1];
-    if (M === 'GET') { await studentOr404(env, user, sid); return json({ ogrenci: await loadStudent(env, sid) }); }
+    if (M === 'GET') { await studentOr404(env, user, sid); return json({ ogrenci: await loadStudent(env, sid, ayar) }); }
     if (M === 'DELETE') {
       if (!isAdv) fail(403, 'Öğrenciyi yalnızca danışman silebilir.');
       const st = await studentOr404(env, user, sid);

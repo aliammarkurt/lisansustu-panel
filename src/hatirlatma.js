@@ -1,5 +1,5 @@
 // Dönemlik hatırlatmalar: her sabah çalışır, her hatırlatmayı bir öğrenciye yalnızca bir kez gönderir.
-import { PROGRAMS, SONUCLU } from '../public/shared.js';
+import { PROGRAMS, SONUCLU, AYAR_VARSAYILAN } from '../public/shared.js';
 
 const GUN = 864e5;
 // Türkiye saatiyle bugün
@@ -16,13 +16,13 @@ function donemAnahtari(t) {
 const gunFarki = (isoA, ms) => Math.round((Date.UTC(...isoA.slice(0, 10).split('-').map((x, i) => i === 1 ? x - 1 : +x)) - ms) / GUN);
 const parse = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d; } };
 
-function gecti(r, c) {
+function gecti(r, c, K) {
   if (SONUCLU.includes(c.tur) || r.notu == null) return r.sonuc === 'basarili';
-  return r.notu >= 70 && (r.final == null || r.final >= 70);
+  return r.notu >= K.gecmeNotu && (r.final == null || r.final >= K.gecmeNotu);
 }
 
 // Tek öğrenci için bugün geçerli hatırlatmalar
-function kurallar(s, dersler, sonEtkinlik, t) {
+function kurallar(s, dersler, sonEtkinlik, t, K) {
   const L = [];
   const ad = s.ad.split(' ')[0];
   const adim = parse(s.adim, {}), tarih = parse(s.adim_tarih, {}), tez = parse(s.tez, {});
@@ -33,7 +33,7 @@ function kurallar(s, dersler, sonEtkinlik, t) {
   let kredi = 0, ders = 0, seminer = false;
   for (const r of dersler) {
     const c = k(r.kod);
-    if (r.durum === 'tamam' && gecti(r, c)) {
+    if (r.durum === 'tamam' && gecti(r, c, K)) {
       if (c.tur === 'zorunlu' || c.tur === 'secmeli') { kredi += c.kredi; ders++; }
       if (c.tur === 'seminer') seminer = true;
     }
@@ -49,17 +49,17 @@ function kurallar(s, dersler, sonEtkinlik, t) {
   if (notDonemi && aliyor.length) L.push({ key: `not-gir-${donem}`, konu: 'Notların açıklandıysa panele gir',
     metin: `Merhaba ${ad},\n\nDönem sonu geldi. Panelde hâlâ "alıyor" görünen ${aliyor.length} dersin var: ${aliyor.map(r => k(r.kod).ad).join(', ')}.\n\nNotların açıklandıysa "Ders durumu" bölümünden "Not gir" ile ekle; dersler yeşile döner ve çubuğun bir adım daha dolar.` });
 
-  // 3. Tez konusu (2. yarıyıldan itibaren, ayda bir)
-  if (s.donem >= 2 && !['tamam', 'onay'].includes(adim.konu)) L.push({ key: `tez-konusu-${t.y}-${t.m}`, konu: 'Tez konusu için küçük bir hatırlatma',
-    metin: `Merhaba ${ad},\n\nYönetmeliğe göre tez konusunun en geç 2. yarıyıl sonuna kadar belirlenip enstitüye önerilmesi gerekiyor. Aklındaki fikirleri konuşmak için panelden bana not bırakabilir ya da görüşme isteyebilirsin. Belirlediğinde "Tez süreci"nde ilk adımı işaretlemeyi unutma.` });
+  // 3. Tez konusu (son yarıyıldan itibaren, ayda bir)
+  if (s.donem >= K.konuSonYariyil && !['tamam', 'onay'].includes(adim.konu)) L.push({ key: `tez-konusu-${t.y}-${t.m}`, konu: 'Tez konusu için küçük bir hatırlatma',
+    metin: `Merhaba ${ad},\n\nYönetmeliğe göre tez konusunun en geç ${K.konuSonYariyil}. yarıyıl sonuna kadar belirlenip enstitüye önerilmesi gerekiyor. Aklındaki fikirleri konuşmak için panelden bana not bırakabilir ya da görüşme isteyebilirsin. Belirlediğinde "Tez süreci"nde ilk adımı işaretlemeyi unutma.` });
 
   // 4. Ders dönemi sonu (normal kayıt, 4. yarıyıl): kredili dersler ve seminer
-  if (s.kayit_turu !== 'af' && s.donem >= 4 && (kredi < 21 || ders < 7 || !seminer)) {
+  if (s.kayit_turu !== 'af' && s.donem >= K.normalSure && (kredi < K.krediMin || ders < K.dersMin || !seminer)) {
     const eksik = [];
-    if (kredi < 21 || ders < 7) eksik.push(`kredili dersler (${kredi}/21 kredi, ${ders}/7 ders)`);
+    if (kredi < K.krediMin || ders < K.dersMin) eksik.push(`kredili dersler (${kredi}/${K.krediMin} kredi, ${ders}/${K.dersMin} ders)`);
     if (!seminer) eksik.push('seminer');
     L.push({ key: `ders-donemi-${donem}`, konu: 'Ders dönemi: tamamlanması gerekenler',
-      metin: `Merhaba ${ad},\n\nYönetmeliğe göre 4. yarıyıl sonunda kredili derslerin ve seminerin tamamlanmış olması gerekiyor. Panelde eksik görünenler: ${eksik.join(' ve ')}. Bu derslerin sonuçları girilmediyse panele eklemen yeterli; eksik bir ders varsa birlikte planlayalım.` });
+      metin: `Merhaba ${ad},\n\nYönetmeliğe göre ${K.normalSure}. yarıyıl sonunda kredili derslerin ve seminerin tamamlanmış olması gerekiyor. Panelde eksik görünenler: ${eksik.join(' ve ')}. Bu derslerin sonuçları girilmediyse panele eklemen yeterli; eksik bir ders varsa birlikte planlayalım.` });
   }
 
   // 5. Savunma yaklaşıyor
@@ -73,8 +73,8 @@ function kurallar(s, dersler, sonEtkinlik, t) {
   if (adim.savunma === 'tamam' && adim.ciltli !== 'tamam' && tarih.savunma) {
     const gecen = -gunFarki(tarih.savunma, t.ms);
     if (gecen >= 14) L.push({ key: `ciltli-14-${tarih.savunma.slice(0, 10)}`, konu: 'Ciltli tez teslimi için hatırlatma',
-      metin: `Merhaba ${ad},\n\nTekrar tebrikler! Savunmadan sonra tezin ciltlenmiş en az 3 kopyasını 1 ay içinde enstitüye teslim etmen gerekiyor. Teslim ettiğinde panelde "Ciltli tezin teslimi" adımını işaretle. Gerekli formlar "Belgeler" bölümünde hazır.` });
-    if (gecen >= 25) L.push({ key: `ciltli-25-${tarih.savunma.slice(0, 10)}`, konu: 'Ciltli teslim için son günler',
+      metin: `Merhaba ${ad},\n\nTekrar tebrikler! Savunmadan sonra tezin ciltlenmiş en az 3 kopyasını ${K.ciltliGun} gün içinde enstitüye teslim etmen gerekiyor. Teslim ettiğinde panelde "Ciltli tezin teslimi" adımını işaretle. Gerekli formlar "Belgeler" bölümünde hazır.` });
+    if (gecen >= K.ciltliGun - 5) L.push({ key: `ciltli-25-${tarih.savunma.slice(0, 10)}`, konu: 'Ciltli teslim için son günler',
       metin: `Merhaba ${ad},\n\nCiltli tez teslim süresinin dolmasına birkaç gün kaldı. Ek süre gerekirse enstitüden bir ay uzatma istenebiliyor; ihtiyacın varsa hemen haber ver.` });
   }
 
@@ -88,7 +88,8 @@ function kurallar(s, dersler, sonEtkinlik, t) {
 }
 
 // Tüm öğrenciler için hesapla; gonder=true ise e-posta at ve kaydet
-export async function hatirlatmalar(env, { gonder = false, sendMail } = {}) {
+export async function hatirlatmalar(env, { gonder = false, sendMail, ayar } = {}) {
+  const K = (ayar || AYAR_VARSAYILAN).kural;
   const t = bugun();
   const ogr = (await env.DB.prepare(`SELECT u.id, u.ad, u.email, st.* FROM users u JOIN students st ON st.user_id = u.id WHERE u.active = 1 AND st.arsiv = 0 AND u.pass_hash IS NOT NULL`).all()).results;
   const gonderilmis = new Set((await env.DB.prepare(`SELECT student_id || '|' || rkey k FROM reminders`).all()).results.map(r => r.k));
@@ -100,7 +101,7 @@ export async function hatirlatmalar(env, { gonder = false, sendMail } = {}) {
     ]);
     const tarihler = Object.values(parse(s.adim_tarih, {}));
     const sonEtkinlik = [son.results[0]?.son, ...tarihler].filter(Boolean).sort().pop() || null;
-    for (const h of kurallar(s, c.results, sonEtkinlik, t)) {
+    for (const h of kurallar(s, c.results, sonEtkinlik, t, K)) {
       if (gonderilmis.has(`${s.id}|${h.key}`)) continue;
       sonuc.push({ ogrenci: s.ad, email: s.email, konu: h.konu, metin: h.metin });
       if (gonder) {

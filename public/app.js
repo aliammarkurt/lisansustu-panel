@@ -1,9 +1,12 @@
 // Lisansüstü Panel — arayüz
 // © 2026 Dr. Öğr. Üyesi Ali Ammar Kurt. Tüm hakları saklıdır.
-import { PROGRAMS, TUR_AD, SONUCLU, ADIMLAR, ADIM, KAYIT_DONEMLERI, TELIF } from './shared.js';
+import { PROGRAMS, TUR_AD, SONUCLU, ADIMLAR, ADIM, KAYIT_DONEMLERI, TELIF, ayarBirlestir, ayarUygula, danismanAdi } from './shared.js';
 import { belgeVerisi, BELGE_SABLON, dosyaAdi, ilgiEki } from './belge-veri.js';
 
-const DANISMAN = 'Dr. Öğr. Üyesi Ali Ammar Kurt';
+// Danışman panelindeki "Ayarlar"dan gelen değerler (kurallar, adlar)
+let AYAR = ayarUygula(ayarBirlestir(null));
+const K = () => AYAR.kural;
+const dan = () => danismanAdi(AYAR);
 
 /* ======================== DURUM ======================== */
 const S = {
@@ -53,6 +56,8 @@ function temaUygula(t) { document.documentElement.dataset.theme = t; try { local
 
 /* ======================== KURAL MOTORU ======================== */
 function yonetmelik(kayit, tur) {
+  const sira = d => KAYIT_DONEMLERI.indexOf(d);
+  if (tur !== 'af' && sira(kayit) >= sira(AYAR.yonetmelik.ilkDonem)) return { ad: AYAR.yonetmelik.ad, not: '' };
   if (tur === 'af') return { ad: 'Af kapsamında dönüş', not: `Dönüş dönemi: ${kayit}. Süreler ve uygulanacak hükümler enstitü kararına göre; panel ders ve tez koşullarını yönetmeliğe göre izler.` };
   if (kayit >= '2026-2027') return { ad: '28/6/2026 tarihli yönetmelik', not: '' };
   if (kayit === '2025-2026 Bahar') return { ad: '14/12/2025 tarihli yönetmelik', not: 'Geçici Madde 1 gereği' };
@@ -60,7 +65,7 @@ function yonetmelik(kayit, tur) {
 }
 function gecti(r, c) {
   if (SONUCLU.includes(c.tur) || r.not == null) return r.sonuc === 'basarili';
-  return r.not >= 70 && (r.final == null || r.final >= 70);
+  return r.not >= K().gecmeNotu && (r.final == null || r.final >= K().gecmeNotu);
 }
 // Alınmakta olan ders yarım sayılır; sonucu girilip geçilen ders tam sayılır.
 function agirlik(r, c, pw) {
@@ -76,8 +81,8 @@ function hesapla(s, pw) {
     const c = kat(s, r.kod); const w = agirlik(r, c, pw);
     if (w > 0) akts += c.akts * w;
     if ((c.tur === 'zorunlu' || c.tur === 'secmeli') && w > 0) {
-      if (r.kaynak === 'lisans' && ++lisans > 2) continue;
-      if (r.kaynak === 'dis' && ++dis > 2) continue;
+      if (r.kaynak === 'lisans' && ++lisans > K().lisansDersMax) continue;
+      if (r.kaynak === 'dis' && ++dis > K().disDersMax) continue;
       kredi += c.kredi * w; ders += w;
       if (r.not != null) { notT += r.not * c.kredi * w; notK += c.kredi * w; }
     }
@@ -86,10 +91,10 @@ function hesapla(s, pw) {
     if (c.tur === 'seminer') sem = Math.max(sem, w);
     if (c.tur === 'uad') uad += w;
   }
-  const uadHedef = Math.max(1, Math.max(4, s.donem) - s.danismanDonem + 1);
+  const uadHedef = Math.max(1, Math.max(K().normalSure, s.donem) - s.danismanDonem + 1);
   const grupDeger = g => { const it = ADIMLAR.find(x => x.grup === g).items; return it.reduce((a, i) => a + i.w * adimDeger(s, i.k, pw), 0) / it.reduce((a, i) => a + i.w, 0); };
   out.kayit = 1;
-  out.dersler = (Math.min(1, kredi / 21) + Math.min(1, ders / 7)) / 2;
+  out.dersler = (Math.min(1, kredi / K().krediMin) + Math.min(1, ders / K().dersMin)) / 2;
   out.zorunlu = (bay + etik) / 2;
   out.seminer = sem;
   out.uad = Math.min(1, uad / uadHedef);
@@ -153,25 +158,25 @@ function asamaBilgisi(s, sen) {
   }
   if (yz === yazim.length) return t('Tez yazımı tamam! Savunmaya hazırlık başlıyor.', `${ad} tez yazımını tamamladı.`);
   if (s.adim.oneriKabul === 'tamam') return t(`Tezinin ${yazim.length} aşamasından ${yz} tanesi tamam.`, `Tez yazımında ${yazim.length} aşamadan ${yz} tanesi tamam.`);
-  if (a.ders >= 7 && a.kredi >= 21) return t('Ders şartını tamamladın! Şimdi sıra fikrini teze dönüştürmekte.', `${ad} ders şartını tamamladı; sıra tez önerisinde.`);
+  if (a.ders >= K().dersMin && a.kredi >= K().krediMin) return t('Ders şartını tamamladın! Şimdi sıra fikrini teze dönüştürmekte.', `${ad} ders şartını tamamladı; sıra tez önerisinde.`);
   if (s.adim.konu === 'tamam') return t('Tez konun belli. Önerini yazmaya başlayabilirsin.', `${ilgiEki(ad)} tez konusu belli; öneri aşamasında.`);
   const devam = s.dersler.filter(r => r.durum === 'aliyor' && ['zorunlu', 'secmeli'].includes(kat(s, r.kod).tur)).length;
-  if (a.ders > 0 || devam) return t(`7 kredili dersin ${Math.floor(a.ders)} tanesi tamam${devam ? `, ${devam} ders devam ediyor` : ''}.`, `7 kredili dersten ${Math.floor(a.ders)} tamam${devam ? `, ${devam} devam ediyor` : ''}.`);
+  if (a.ders > 0 || devam) return t(`${K().dersMin} kredili dersin ${Math.floor(a.ders)} tanesi tamam${devam ? `, ${devam} ders devam ediyor` : ''}.`, `${K().dersMin} kredili dersten ${Math.floor(a.ders)} tamam${devam ? `, ${devam} devam ediyor` : ''}.`);
   return t('İlk adım: bu dönem aldığın dersleri "Ders durumu"ndan ekle.', `${ad} henüz ders eklemedi.`);
 }
 function siradaki(s) {
   const a = hesapla(s, 0);
-  if (a.kredi < 21 || a.ders < 7) {
-    const kalanD = Math.max(0, 7 - Math.floor(a.ders)), kalanK = Math.max(0, 21 - a.kredi);
+  if (a.kredi < K().krediMin || a.ders < K().dersMin) {
+    const kalanD = Math.max(0, K().dersMin - Math.floor(a.ders)), kalanK = Math.max(0, K().krediMin - a.kredi);
     const alinan = s.dersler.filter(r => r.durum === 'aliyor' && ['zorunlu', 'secmeli'].includes(kat(s, r.kod).tur)).length;
     let t = `Kredili ders şartına ${kalanK} kredi ve ${kalanD} ders kaldı.`;
-    if (!s.dersler.length) t = 'Bu dönem aldığın dersleri "Ders durumu" bölümünden ekleyerek başla. Kredili ders şartı: en az 21 kredi ve 7 ders.';
+    if (!s.dersler.length) t = `Bu dönem aldığın dersleri "Ders durumu" bölümünden ekleyerek başla. Kredili ders şartı: en az ${K().krediMin} kredi ve ${K().dersMin} ders.`;
     else if (alinan) t += ` Bu dönem aldığın ${alinan} ders tamamlanınca bu kısım büyük ölçüde dolacak.`;
     if (s.program === 'pdr' && a.ders >= 4 && kalanD > 0) t += ' PDR programında 2 zorunlu derse ek olarak en az 5 seçmeli gerekiyor.';
     return { b: 'Kredili dersler', t, sec: 'dersler' };
   }
   if (a.bay < 1 || a.etik < 1) return { b: 'Yöntem ve etik dersleri', t: 'Bilimsel Araştırma Yöntemleri ve araştırma/yayın etiği dersi zorunlu. Kredi sayısına girmez ama mezuniyet için gerekli.', sec: 'dersler' };
-  if (a.sem < 1) return { b: 'Seminer', t: 'Seminer dersini tamamladığında ders dönemi bitiyor. 4. yarıyıl sonuna kadar tamamlanmalı.', sec: 'dersler' };
+  if (a.sem < 1) return { b: 'Seminer', t: `Seminer dersini tamamladığında ders dönemi bitiyor. ${K().normalSure}. yarıyıl sonuna kadar tamamlanmalı.`, sec: 'dersler' };
   for (const g of ADIMLAR) for (const i of g.items) {
     if (s.adim[i.k] === 'tamam' || s.adim[i.k] === 'onay') continue;
     return { b: i.ad, t: (i.by === 'danisman' ? 'Bu adımı danışmanın işaretleyecek. ' : '') + (i.not || 'Tamamladığında işaretle; danışmanın onaylayınca çubuk dolar.'), sec: 'tez' };
@@ -181,31 +186,31 @@ function siradaki(s) {
 function kontroller(s) {
   const a = hesapla(s, 0), b = hesapla(s, .5), L = [];
   const st3 = (ok, pend) => ok ? 'tamam' : pend ? 'surec' : 'bekliyor';
-  L.push({ ad: 'En az 21 kredi', ref: 'M19/3', val: `${fmt(a.kredi)} / 21`, d: st3(a.kredi >= 21, b.kredi > 0) });
-  L.push({ ad: 'En az 7 kredili ders', ref: 'M19/3 · yöntem ve etik dersleri sayılmaz', val: `${fmt(a.ders)} / 7`, d: st3(a.ders >= 7, b.ders > 0) });
+  L.push({ ad: `En az ${K().krediMin} kredi`, ref: 'M19/3', val: `${fmt(a.kredi)} / ${K().krediMin}`, d: st3(a.kredi >= K().krediMin, b.kredi > 0) });
+  L.push({ ad: `En az ${K().dersMin} kredili ders`, ref: 'M19/3 · yöntem ve etik dersleri sayılmaz', val: `${fmt(a.ders)} / ${K().dersMin}`, d: st3(a.ders >= K().dersMin, b.ders > 0) });
   L.push({ ad: 'Bilimsel Araştırma Yöntemleri', ref: 'M12/5', val: a.bay >= 1 ? 'Tamam' : '—', d: st3(a.bay >= 1, b.bay > 0) });
   L.push({ ad: 'Araştırma ve yayın etiği dersi', ref: 'M12/5', val: a.etik >= 1 ? 'Tamam' : '—', d: st3(a.etik >= 1, b.etik > 0) });
   L.push({ ad: 'Seminer', ref: 'M19/3 · başarılı/başarısız', val: a.sem >= 1 ? 'Tamam' : '—', d: st3(a.sem >= 1, b.sem > 0) });
   L.push({ ad: 'Her yarıyıl UAD', ref: 'M19/3 · danışman atamasından sonra', val: `${fmt(a.uad)} / ${a.uadHedef}`, d: st3(a.uad >= a.uadHedef, b.uad > 0) });
-  L.push({ ad: 'En az 120 AKTS', ref: 'M19/3 · yılda 60 AKTS', val: `${fmt(a.akts)} / 120`, d: st3(a.akts >= 120, b.akts > 0) });
-  L.push({ ad: 'Her ders en az 70, yarıyıl sonu/bütünleme notu en az 70', ref: 'M16/3', val: '', d: s.dersler.some(r => r.durum !== 'aliyor' && !gecti(r, kat(s, r.kod))) ? 'surec' : (s.dersler.length ? 'tamam' : 'bekliyor') });
-  L.push({ ad: 'En fazla 2 lisans dersi, en fazla 2 başka üniversite dersi', ref: 'M19/4', val: `${a.lisans} · ${a.dis}`, d: a.lisans <= 2 && a.dis <= 2 ? 'tamam' : 'surec' });
+  L.push({ ad: `En az ${K().aktsMin} AKTS`, ref: 'M19/3 · yılda 60 AKTS', val: `${fmt(a.akts)} / ${K().aktsMin}`, d: st3(a.akts >= K().aktsMin, b.akts > 0) });
+  L.push({ ad: `Her ders en az ${K().gecmeNotu}, yarıyıl sonu/bütünleme notu en az ${K().gecmeNotu}`, ref: 'M16/3', val: '', d: s.dersler.some(r => r.durum !== 'aliyor' && !gecti(r, kat(s, r.kod))) ? 'surec' : (s.dersler.length ? 'tamam' : 'bekliyor') });
+  L.push({ ad: `En fazla ${K().lisansDersMax} lisans dersi, en fazla ${K().disDersMax} başka üniversite dersi`, ref: 'M19/4', val: `${a.lisans} · ${a.dis}`, d: a.lisans <= K().lisansDersMax && a.dis <= K().disDersMax ? 'tamam' : 'surec' });
   const konu = s.adim.konu === 'tamam';
-  L.push({ ad: 'Tez konusu en geç 2. yarıyıl sonunda', ref: 'M22/1', val: konu ? 'Tamam' : `${s.donem}. yarıyıl`, d: konu ? 'tamam' : s.adim.konu === 'onay' ? 'surec' : 'bekliyor' });
+  L.push({ ad: `Tez konusu en geç ${K().konuSonYariyil}. yarıyıl sonunda`, ref: 'M22/1', val: konu ? 'Tamam' : `${s.donem}. yarıyıl`, d: konu ? 'tamam' : s.adim.konu === 'onay' ? 'surec' : 'bekliyor' });
   L.push({ ad: 'Akademik faaliyet şartı', ref: 'M23/1 · Senato esasları eklenecek', val: '', d: st3(s.adim.faaliyet === 'tamam', s.adim.faaliyet === 'onay') });
   L.push({ ad: 'Tez savunmasında kabul', ref: 'M23/6', val: '', d: st3(s.adim.savunma === 'tamam', false) });
-  L.push({ ad: 'Genel not ortalaması en az 70', ref: 'M23/10', val: a.gno ? fmt(a.gno) : '—', d: a.gno == null ? 'bekliyor' : a.gno >= 70 && a.ders >= 7 ? 'tamam' : 'surec' });
-  L.push({ ad: 'Ciltli tez (en az 3 kopya) 1 ay içinde', ref: 'M23/10', val: '', d: st3(s.adim.ciltli === 'tamam', s.adim.ciltli === 'onay') });
+  L.push({ ad: `Genel not ortalaması en az ${K().gnoMin}`, ref: 'M23/10', val: a.gno ? fmt(a.gno) : '—', d: a.gno == null ? 'bekliyor' : a.gno >= K().gnoMin && a.ders >= K().dersMin ? 'tamam' : 'surec' });
+  L.push({ ad: `Ciltli tez (en az 3 kopya) ${K().ciltliGun} gün içinde`, ref: 'M23/10', val: '', d: st3(s.adim.ciltli === 'tamam', s.adim.ciltli === 'onay') });
   if (s.kayitTuru === 'af') L.push({ ad: 'Süre', ref: 'Af kapsamında dönüş · süre enstitü kararına göre', val: `${s.donem}. yarıyıl`, d: 'surec' });
-  else L.push({ ad: 'Süre', ref: 'Normal 4, en çok 6 yarıyıl · erken mezuniyet en az 3 yarıyıl (M21)', val: `${s.donem}. yarıyıl`, d: s.donem <= 4 ? 'tamam' : 'surec' });
+  else L.push({ ad: 'Süre', ref: `Normal ${K().normalSure}, en çok ${K().azamiSure} yarıyıl · erken mezuniyet en az 3 yarıyıl (M21)`, val: `${s.donem}. yarıyıl`, d: s.donem <= K().normalSure ? 'tamam' : 'surec' });
   return L;
 }
 function hatirlatmalar(s) {
   const a = hesapla(s, 0), L = [];
-  if (s.donem >= 2 && s.adim.konu !== 'tamam') L.push('Tez konusu 2. yarıyıl sonuna kadar belirlenmeli.');
-  if (s.kayitTuru !== 'af' && s.donem >= 4 && (a.ders < 7 || a.kredi < 21 || a.sem < 1)) L.push('4. yarıyıl sonunda kredili dersler ve seminer tamamlanmış olmalı.');
-  if (s.kayitTuru !== 'af' && s.donem >= 5) L.push(`Azami süre: ${Math.max(0, 6 - s.donem + 1)} yarıyıl kaldı.`);
-  if (s.program === 'pdr' && a.ders >= 6 && a.ders < 7 && !s.dersler.some(r => r.durum !== 'tamam' && kat(s, r.kod).tur === 'secmeli')) L.push('7. kredili ders için bir seçmeli daha gerekiyor.');
+  if (s.donem >= K().konuSonYariyil && s.adim.konu !== 'tamam') L.push(`Tez konusu ${K().konuSonYariyil}. yarıyıl sonuna kadar belirlenmeli.`);
+  if (s.kayitTuru !== 'af' && s.donem >= K().normalSure && (a.ders < K().dersMin || a.kredi < K().krediMin || a.sem < 1)) L.push(`${K().normalSure}. yarıyıl sonunda kredili dersler ve seminer tamamlanmış olmalı.`);
+  if (s.kayitTuru !== 'af' && s.donem > K().normalSure) L.push(`Azami süre: ${Math.max(0, K().azamiSure - s.donem + 1)} yarıyıl kaldı.`);
+  if (s.program === 'pdr' && a.ders >= K().dersMin - 1 && a.ders < K().dersMin && !s.dersler.some(r => r.durum !== 'tamam' && kat(s, r.kod).tur === 'secmeli')) L.push('7. kredili ders için bir seçmeli daha gerekiyor.');
   return L;
 }
 function bekleyenler() {
@@ -246,6 +251,7 @@ const ICON = {
   notlar: '<path d="M4 5h16v11H9l-5 4z"/>',
   ogrenciler: '<circle cx="9" cy="8" r="3.5"/><path d="M2 20c1-3.5 3.8-5 7-5s6 1.5 7 5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 15c2 .6 3.4 2.2 4 5"/>',
   onaylar: '<path d="M4 12l5 5L20 6"/>',
+  ayarlar: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 010 4h-.1a1.7 1.7 0 00-1.5 1z"/>',
   hatirlatma: '<path d="M6 16V11a6 6 0 0112 0v5l2 2H4z"/><path d="M10 20a2 2 0 004 0"/>',
   hesap: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
@@ -332,7 +338,7 @@ function render() {
   const adv = isAdv(), s = cur(), bek = adv ? bekleyenler() : [];
   let nav = '';
   if (adv) {
-    nav += `<div class="grp eyebrow">Danışman</div>` + navi('ogrenciler', 'Öğrencilerim') + navi('onaylar', 'Onay bekleyenler', bek.length) + navi('hatirlatma', 'Hatırlatmalar');
+    nav += `<div class="grp eyebrow">Danışman</div>` + navi('ogrenciler', 'Öğrencilerim') + navi('onaylar', 'Onay bekleyenler', bek.length) + navi('hatirlatma', 'Hatırlatmalar') + navi('ayarlar', 'Ayarlar');
     if (s) nav += `<div class="grp eyebrow">${esc(s.ad)}</div>` + OGR_MENU.map(([k, t]) => navi(k, t)).join('');
   } else if (s) {
     const n = Object.values(s.adim).filter(x => x === 'onay').length;
@@ -362,6 +368,7 @@ function anaIcerik() {
   if (adv && S.section === 'ogrenciler') return ogrencilerHTML();
   if (adv && S.section === 'onaylar') return onaylarHTML();
   if (adv && S.section === 'hatirlatma') return hatirlatmaHTML();
+  if (adv && S.section === 'ayarlar') return ayarlarHTML();
   const s = cur();
   if (!s) return `<section class="panel"><h2>Kayıt bulunamadı</h2><p class="muted">Öğrenci kaydına ulaşılamadı. Danışmanınla iletişime geç.</p></section>`;
   let h = '';
@@ -397,9 +404,9 @@ function genelHTML(s) {
   const satir = x => `<div style="display:grid;gap:5px"><div class="row" style="justify-content:space-between"><span>${esc(x.ad)}</span><span class="mono muted">%${Math.round(x.all * 100)}</span></div><div class="meter"><i class="p" style="width:${x.all * 100}%"></i><i style="width:${x.ok * 100}%"></i></div></div>`;
   return `
   <div class="grid3">
-    <div class="stat"><span class="eyebrow">Kredi</span><span class="v mono">${fmt(a.kredi)}<small class="muted" style="font-size:15px"> / 21</small></span></div>
-    <div class="stat"><span class="eyebrow">Kredili ders</span><span class="v mono">${fmt(a.ders)}<small class="muted" style="font-size:15px"> / 7</small></span></div>
-    <div class="stat"><span class="eyebrow">AKTS</span><span class="v mono">${fmt(a.akts)}<small class="muted" style="font-size:15px"> / 120</small></span></div>
+    <div class="stat"><span class="eyebrow">Kredi</span><span class="v mono">${fmt(a.kredi)}<small class="muted" style="font-size:15px"> / ${K().krediMin}</small></span></div>
+    <div class="stat"><span class="eyebrow">Kredili ders</span><span class="v mono">${fmt(a.ders)}<small class="muted" style="font-size:15px"> / ${K().dersMin}</small></span></div>
+    <div class="stat"><span class="eyebrow">AKTS</span><span class="v mono">${fmt(a.akts)}<small class="muted" style="font-size:15px"> / ${K().aktsMin}</small></span></div>
   </div>
   <div class="grid2">
     <section class="panel"><h2>Aşamalar</h2>${p.seg.map(satir).join('')}</section>
@@ -431,7 +438,7 @@ function kisiselHTML(s) {
       ${f('k-abd', 'Anabilim dalı', P.abd, 'text', true)}
       ${sel('k-donem', 'Şu anki yarıyıl', [1, 2, 3, 4, 5, 6, 7, 8].map(n => [n, n + '. yarıyıl']), s.donem)}
       ${sel('k-ddonem', 'Danışmanın atandığı yarıyıl', [1, 2, 3, 4].map(n => [n, n + '. yarıyıl']), s.danismanDonem)}
-      ${f('k-statu', 'Statü', s.statu)}${f('k-dan', 'Danışman', DANISMAN, 'text', true)}
+      ${f('k-statu', 'Statü', s.statu)}${f('k-dan', 'Danışman', dan(), 'text', true)}
     </div>
     ${adv ? `<label style="display:flex;gap:8px;align-items:center;font-size:14px"><input type="checkbox" id="k-arsiv" ${s.arsiv ? 'checked' : ''}> Arşivle (mezun oldu ya da ayrıldı; listede en alta iner, onay kuyruğundan çıkar)</label>` : ''}
     <div class="row"><button class="btn primary" data-a="kaydet-kisisel">Kaydet</button><span class="muted" style="font-size:13px">Uygulanan yönetmelik: ${esc(yon.ad)}</span></div>
@@ -482,11 +489,11 @@ function derslerHTML(s) {
   <section class="panel">
     <div class="row" style="justify-content:space-between"><h2>Ders durumu</h2><span class="muted" style="font-size:13.5px">Çubuk, müfredat listesine göre değil yönetmelik koşullarına göre ilerler.</span></div>
     <div class="grid3">
-      <div class="stat"><span class="eyebrow">Kredi (en az 21)</span><span class="v mono">${fmt(a.kredi)}</span><div class="meter"><i style="width:${Math.min(100, a.kredi / 21 * 100)}%"></i></div></div>
-      <div class="stat"><span class="eyebrow">Kredili ders (en az 7)</span><span class="v mono">${fmt(a.ders)}</span><div class="meter"><i style="width:${Math.min(100, a.ders / 7 * 100)}%"></i></div></div>
-      <div class="stat"><span class="eyebrow">AKTS (en az 120)</span><span class="v mono">${fmt(a.akts)}</span><div class="meter"><i style="width:${Math.min(100, a.akts / 120 * 100)}%"></i></div></div>
+      <div class="stat"><span class="eyebrow">Kredi (en az ${K().krediMin})</span><span class="v mono">${fmt(a.kredi)}</span><div class="meter"><i style="width:${Math.min(100, a.kredi / K().krediMin * 100)}%"></i></div></div>
+      <div class="stat"><span class="eyebrow">Kredili ders (en az ${K().dersMin})</span><span class="v mono">${fmt(a.ders)}</span><div class="meter"><i style="width:${Math.min(100, a.ders / K().dersMin * 100)}%"></i></div></div>
+      <div class="stat"><span class="eyebrow">AKTS (en az ${K().aktsMin})</span><span class="v mono">${fmt(a.akts)}</span><div class="meter"><i style="width:${Math.min(100, a.akts / K().aktsMin * 100)}%"></i></div></div>
     </div>
-    <p class="muted" style="margin:0;font-size:13.5px">Şu an aldığın dersler çubukta yarım sayılır; notunu girdiğinde ders yeşile döner ve tam sayılır. Bilimsel Araştırma Yöntemleri ve Bilimsel Etik zorunludur ama 7 ders sayısına girmez. Seminer ve UAD başarılı/başarısız olarak değerlendirilir. Bir dersin sayılması için başarı notu ve yarıyıl sonu/bütünleme notu en az 70 olmalı.</p>
+    <p class="muted" style="margin:0;font-size:13.5px">Şu an aldığın dersler çubukta yarım sayılır; notunu girdiğinde ders yeşile döner ve tam sayılır. Bilimsel Araştırma Yöntemleri ve Bilimsel Etik zorunludur ama ${K().dersMin} ders sayısına girmez. Seminer ve UAD başarılı/başarısız olarak değerlendirilir. Bir dersin sayılması için başarı notu ve yarıyıl sonu/bütünleme notu en az ${K().gecmeNotu} olmalı.</p>
     ${terms.length ? terms.map(tbl).join('') : '<p class="muted">Henüz ders eklenmedi. Aşağıdaki program dersleri listesinden aldığın derslere tıklayarak başla.</p>'}
   </section>
   ${programDersleriHTML(s, adv)}`;
@@ -499,7 +506,7 @@ function programDersleriHTML(s, adv) {
   const P = PROGRAMS[s.program];
   const kayit = kod => s.dersler.filter(r => r.kod === kod);
   const zk = P.katalog.filter(c => c.tur === 'zorunlu' && c.kredi > 0);
-  const minSec = Math.max(0, Math.max(7 - zk.length, Math.ceil((21 - zk.reduce((x, c) => x + c.kredi, 0)) / 3)));
+  const minSec = Math.max(0, Math.max(K().dersMin - zk.length, Math.ceil((K().krediMin - zk.reduce((x, c) => x + c.kredi, 0)) / 3)));
   const satir = c => {
     const L = kayit(c.kod), son = L[L.length - 1];
     const tekrar = son && son.durum !== 'aliyor' && son.durum !== 'duzeltme' && !gecti(son, c) && son.durum !== 'onay';
@@ -518,7 +525,7 @@ function programDersleriHTML(s, adv) {
     } else {
       sag = `<span class="row" style="gap:6px;justify-content:flex-end;flex-wrap:nowrap">${tekrar ? '<span class="muted" style="font-size:12.5px">Tekrar al:</span>' : ''}<button class="btn small" data-a="ders-aliyorum" data-kod="${esc(c.kod)}">Alıyorum</button><button class="btn small" data-a="ekle-ac-kod" data-kod="${esc(c.kod)}">Aldım</button></span>`;
     }
-    return `<div class="crow ${son && !tekrar ? 'alindi' : ''} ${S.ekleKod === c.kod ? 'acik' : ''}"><span class="mono kod">${esc(c.kod)}</span><div style="min-width:0"><div>${esc(c.ad)}</div><div class="muted" style="font-size:12.5px">${c.kredi} kredi · ${c.akts} AKTS${c.tur === 'bay' || c.tur === 'etik' ? ' · kredisiz, 7 ders sayısına girmez' : ''}</div></div><div class="sag">${sag}</div></div>`;
+    return `<div class="crow ${son && !tekrar ? 'alindi' : ''} ${S.ekleKod === c.kod ? 'acik' : ''}"><span class="mono kod">${esc(c.kod)}</span><div style="min-width:0"><div>${esc(c.ad)}</div><div class="muted" style="font-size:12.5px">${c.kredi} kredi · ${c.akts} AKTS${c.tur === 'bay' || c.tur === 'etik' ? ` · kredisiz, ${K().dersMin} ders sayısına girmez` : ''}</div></div><div class="sag">${sag}</div></div>`;
   };
   const grup = ([tur, baslik]) => {
     const cs = P.katalog.filter(c => tur.includes(c.tur)); if (!cs.length) return '';
@@ -667,13 +674,13 @@ function belgeKagit(s, id) {
   switch (id) {
     case 'kapak': return `<div class="c" style="padding:60px 0"><p><b>${V(s.ad.toLocaleUpperCase('tr'))}</b></p><p style="margin-top:50px;font-size:18px"><b>${V(t.baslikTr.toLocaleUpperCase('tr'))}</b></p><p style="margin-top:50px">YÜKSEK LİSANS TEZ ÖNERİSİ</p><p>${esc(P.abd.toLocaleUpperCase('tr'))}</p><p>EĞİTİM BİLİMLERİ ENSTİTÜSÜ<br>MERSİN ÜNİVERSİTESİ</p><p>${yil}</p></div><p style="font-size:13px;color:#555">Şablonun devamı (Özet, Abstract, Bölüm 1–3, Kaynakça, Ekler) Word dosyasında boş başlıklarla gelecek.</p>`;
     case 'oneriTutanak': return `${UST}<h4 style="margin-top:14px">TEZ ÖNERİSİ TUTANAĞI</h4><p>Sayı: <span class="blank">.............</span><span style="float:right">Tarih: ${V(trTarih(t.oneriTarih), 12)}</span></p>
-      <p style="text-indent:2em">Enstitümüz ${esc(P.abd)} yüksek lisans öğrencisi ${V(s.ad)}'nın, danışmanlığını ${esc(DANISMAN)}'nın yürüttüğü “${V(t.baslikTr)}” başlıklı yüksek lisans tez önerisi komisyonumuzca incelenmiş ve <span class="box"></span>oybirliği <span class="box"></span>oyçokluğu ile <span class="box"></span>kabul <span class="box"></span>red edilmiştir.</p>
+      <p style="text-indent:2em">Enstitümüz ${esc(P.abd)} yüksek lisans öğrencisi ${V(s.ad)}'nın, danışmanlığını ${esc(dan())}'nın yürüttüğü “${V(t.baslikTr)}” başlıklı yüksek lisans tez önerisi komisyonumuzca incelenmiş ve <span class="box"></span>oybirliği <span class="box"></span>oyçokluğu ile <span class="box"></span>kabul <span class="box"></span>red edilmiştir.</p>
       ${imza(P.baskan, 'Anabilim Dalı Başkanı')}`;
     case 'oneriDeg': return t.komisyon.map((k, n) => `${UST}<h4 style="margin-top:14px">ÖĞRETİM ELEMANI TEZ ÖNERİSİ DEĞERLENDİRME FORMU</h4>
-      <table><tr><th>Tarih</th><td>${V(trTarih(t.oneriTarih))}</td></tr><tr><th>Komisyon üyesi</th><td>${V(k)}</td></tr><tr><th>Tez başlığı</th><td>${V(t.baslikTr)}</td></tr><tr><th>Danışman</th><td>${esc(DANISMAN)}</td></tr><tr><th>Öğrenci</th><td>${V(s.ad)} · ${V(s.no, 12)} · ${esc(P.abd)}</td></tr></table>
+      <table><tr><th>Tarih</th><td>${V(trTarih(t.oneriTarih))}</td></tr><tr><th>Komisyon üyesi</th><td>${V(k)}</td></tr><tr><th>Tez başlığı</th><td>${V(t.baslikTr)}</td></tr><tr><th>Danışman</th><td>${esc(dan())}</td></tr><tr><th>Öğrenci</th><td>${V(s.ad)} · ${V(s.no, 12)} · ${esc(P.abd)}</td></tr></table>
       <p style="font-size:13px;color:#555">Değerlendirme soruları (7 evet/hayır maddesi) resmî formdaki gibi boş gelecek. (${n + 1}/${t.komisyon.length})</p>`).join('<hr style="margin:30px 0">');
     case 'juriOneri': return `${UST}<h4 style="margin-top:14px">YÜKSEK LİSANS TEZ SINAVI JÜRİ ÖNERİ FORMU</h4><p>Sayı: <span class="blank">.............</span><span style="float:right">Tarih: ${V(today())}</span></p>
-      <table><tr><th>Öğrenci</th><td>${V(s.ad)}</td><th>Numara</th><td>${V(s.no, 12)}</td></tr><tr><th>Anabilim dalı</th><td colspan="3">${esc(P.abd)}</td></tr><tr><th>Danışman</th><td colspan="3">${esc(DANISMAN)}</td></tr><tr><th>Tez başlığı</th><td colspan="3">${V(t.baslikTr)}</td></tr><tr><th>Sınav</th><td colspan="3">${V(trTarih(t.sinavTarih), 10)} · ${V(t.sinavSaat, 6)} · ${V(t.sinavYer)}</td></tr></table>
+      <table><tr><th>Öğrenci</th><td>${V(s.ad)}</td><th>Numara</th><td>${V(s.no, 12)}</td></tr><tr><th>Anabilim dalı</th><td colspan="3">${esc(P.abd)}</td></tr><tr><th>Danışman</th><td colspan="3">${esc(dan())}</td></tr><tr><th>Tez başlığı</th><td colspan="3">${V(t.baslikTr)}</td></tr><tr><th>Sınav</th><td colspan="3">${V(trTarih(t.sinavTarih), 10)} · ${V(t.sinavSaat, 6)} · ${V(t.sinavYer)}</td></tr></table>
       <table><tr><th></th><th>Unvan</th><th>Ad soyad</th><th>Kurum</th></tr>${J.map((j, n) => `<tr><td>${n < 3 ? `Asil ${n + 1}` : `Yedek ${n - 2}`}</td><td>${V(j.u, 10)}</td><td>${V(j.a, 16)}</td><td>${V(j.k, 16)}</td></tr>`).join('')}</table>
       ${imza(P.baskan, 'Anabilim Dalı Başkanı')}`;
     case 'savunma': return `${UST}<h4 style="margin-top:14px">YÜKSEK LİSANS TEZ SAVUNMA SINAVI TUTANAĞI</h4><p>Sayı: <span class="blank">.............</span><span style="float:right">Tarih: ${V(trTarih(t.sinavTarih), 12)}</span></p>
@@ -682,10 +689,10 @@ function belgeKagit(s, id) {
       <table><tr><th>Jüri</th><th>Ad soyad</th><th>Kurum</th><th>İmza</th></tr>${J.slice(0, 3).map((j, n) => `<tr><td>${n === 0 ? 'Başkan / Danışman' : 'Üye'}</td><td>${V((j.u + ' ' + j.a).trim())}</td><td>${V(j.k)}</td><td></td></tr>`).join('')}</table>
       ${imza(P.baskan, 'Anabilim Dalı Başkanı')}`;
     case 'juriDeg': return J.slice(0, 3).map((j, n) => `${UST}<h4 style="margin-top:14px">JÜRİ ÜYESİ DEĞERLENDİRME FORMU</h4>
-      <table><tr><th>Öğrenci</th><td>${V(s.ad)}</td></tr><tr><th>Danışman</th><td>${esc(DANISMAN)}</td></tr><tr><th>Jüri üyesi</th><td>${V((j.u + ' ' + j.a).trim())} (${V(j.k, 12)})</td></tr><tr><th>Anabilim dalı</th><td>${esc(P.abd)}</td></tr><tr><th>Tez başlığı</th><td>${V(t.baslikTr)}</td></tr><tr><th>Tarih</th><td>${V(trTarih(t.sinavTarih))}</td></tr></table>
+      <table><tr><th>Öğrenci</th><td>${V(s.ad)}</td></tr><tr><th>Danışman</th><td>${esc(dan())}</td></tr><tr><th>Jüri üyesi</th><td>${V((j.u + ' ' + j.a).trim())} (${V(j.k, 12)})</td></tr><tr><th>Anabilim dalı</th><td>${esc(P.abd)}</td></tr><tr><th>Tez başlığı</th><td>${V(t.baslikTr)}</td></tr><tr><th>Tarih</th><td>${V(trTarih(t.sinavTarih))}</td></tr></table>
       <p style="font-size:13px;color:#555">Değerlendirme ölçütleri resmî formdaki gibi boş gelecek. (${n + 1}/3)</p>`).join('<hr style="margin:30px 0">');
     case 'teslim': return `${UST}<h4 style="margin-top:14px">TEZ TESLİM VE KULLANIM İZNİ FORMU</h4>
-      <table><tr><th>Ad soyad</th><td>${V(s.ad)}</td></tr><tr><th>T.C. Kimlik No</th><td>${V(S.gecici?.tc)}</td></tr><tr><th>E-posta</th><td>${V(s.eposta)}</td></tr><tr><th>Posta adresi</th><td>${V(S.gecici?.adres)}</td></tr><tr><th>Enstitü</th><td>Eğitim Bilimleri Enstitüsü</td></tr><tr><th>Danışman</th><td>${esc(DANISMAN)}</td></tr><tr><th>Tez yılı</th><td>${yil}</td></tr><tr><th>Tez adı</th><td>${V(t.baslikTr)}</td></tr></table>
+      <table><tr><th>Ad soyad</th><td>${V(s.ad)}</td></tr><tr><th>T.C. Kimlik No</th><td>${V(S.gecici?.tc)}</td></tr><tr><th>E-posta</th><td>${V(s.eposta)}</td></tr><tr><th>Posta adresi</th><td>${V(S.gecici?.adres)}</td></tr><tr><th>Enstitü</th><td>Eğitim Bilimleri Enstitüsü</td></tr><tr><th>Danışman</th><td>${esc(dan())}</td></tr><tr><th>Tez yılı</th><td>${yil}</td></tr><tr><th>Tez adı</th><td>${V(t.baslikTr)}</td></tr></table>
       <p style="font-size:13px;color:#555">İzin seçenekleri ve beyan metni resmî formdaki gibi gelecek; iki nüsha imzalanır.</p>`;
     case 'cikis': return `${UST}<h4 style="margin-top:14px">LİSANSÜSTÜ ÇIKIŞ İŞLEMLERİ</h4>
       <table><tr><th>Ad soyad</th><td>${V(s.ad)}</td><th>Öğrenci no</th><td>${V(s.no, 12)}</td></tr><tr><th>Anabilim dalı</th><td colspan="3">${esc(P.abd)}</td></tr><tr><th>Program</th><td>${esc(P.ad)}</td><th>Statü</th><td>${V(s.statu, 12)}</td></tr></table>
@@ -722,6 +729,7 @@ async function wordIndir(id, kisiNo) {
   const zip = new window.PizZip(await r.arrayBuffer());
   const doc = new window.docxtemplater(zip, { paragraphLoop: true, linebreaks: true, nullGetter: () => '' });
   doc.render(belgeVerisi(s, {
+    danisman: dan(), danismanBuyuk: dan().toLocaleUpperCase('tr'),
     ...(kisi ? { uyeAd: kisi.ad, uyeKurum: kisi.kurum } : {}),
     ...(id === 'teslim' ? { tc: S.gecici?.tc || '', adres: S.gecici?.adres || '' } : {}),
   }));
@@ -796,10 +804,39 @@ const KURALLAR = [
   ['Tez konusu', '2. yarıyıldan itibaren tez konusu belirlenmemişse ayda bir.'],
   ['Ders dönemi sonu', '4. yarıyılda kredili dersler veya seminer eksikse dönemde bir kez (af ile dönenlere gönderilmez).'],
   ['Savunma', 'Savunma tarihinden 7 gün ve 1 gün önce.'],
-  ['Ciltli teslim', 'Savunma onaylandıktan 14 ve 25 gün sonra, ciltli teslim işaretlenmemişse.'],
+  ['Ciltli teslim', 'Savunma onaylandıktan 14 gün sonra ve teslim süresinin bitmesine 5 gün kala, ciltli teslim işaretlenmemişse.'],
   ['Sessizlik', 'Tez konusu belli olan öğrenciden 45 gündür dosya, not veya ders güncellemesi yoksa "Nasıl gidiyor?" e-postası.'],
   ['Haftalık özet', 'Her pazartesi size: onay bekleyenler, yorum bekleyen sürümler, yaklaşan savunmalar ve giden hatırlatmalar.'],
 ];
+/* ---------- Ayarlar (yalnızca danışman) ---------- */
+const KURAL_ETIKET = [
+  ['krediMin', 'En az kredi', 'M19/3'], ['dersMin', 'En az kredili ders sayısı', 'M19/3'], ['aktsMin', 'En az AKTS', 'M19/3'],
+  ['gecmeNotu', 'Ders geçme notu (100 üzerinden)', 'M16/3'], ['gnoMin', 'En az genel not ortalaması', 'M23/10'],
+  ['normalSure', 'Normal süre (yarıyıl)', 'M21'], ['azamiSure', 'Azami süre (yarıyıl)', 'M21'],
+  ['konuSonYariyil', 'Tez konusu en geç kaçıncı yarıyıl sonunda', 'M22'], ['ciltliGun', 'Savunmadan sonra ciltli teslim süresi (gün)', 'M23/10'],
+  ['lisansDersMax', 'En fazla lisans dersi', 'M19/4'], ['disDersMax', 'En fazla başka üniversite dersi', 'M19/4'],
+];
+function ayarlarHTML() {
+  const a = AYAR, V = S.varsayilan;
+  const inp = (yol, etiket, deger, ipucu = '', tip = 'text') => `<div class="field"><label for="ay-${yol}">${etiket}</label><input class="input" id="ay-${yol}" data-ayar="${yol}" type="${tip}" value="${esc(deger)}" ${tip === 'number' ? 'min="0" step="1"' : ''}>${ipucu ? `<span class="muted" style="font-size:12px">${ipucu}</span>` : ''}</div>`;
+  const prog = (k, baslik) => `<div class="panel" style="padding:16px;background:var(--surface-2)"><h3>${baslik}</h3><div class="grid2" style="gap:12px">
+      ${inp(`programlar.${k}.abd`, 'Anabilim dalı', a.programlar[k].abd)}${inp(`programlar.${k}.baskan`, 'Anabilim dalı başkanı (unvanıyla)', a.programlar[k].baskan, 'Formlardaki imza alanına yazılır.')}
+      ${inp(`programlar.${k}.ad`, 'Program adı', a.programlar[k].ad)}${inp(`programlar.${k}.kisa`, 'Kısa ad', a.programlar[k].kisa)}</div></div>`;
+  return `<div><span class="eyebrow">Danışman paneli</span><h1 style="font-size:30px;margin-top:4px">Ayarlar</h1>
+    <p class="muted" style="margin:6px 0 0">Burada değiştirdiğiniz bilgiler tüm öğrencilerin ilerleme hesabına, mezuniyet koşullarına, hatırlatmalara ve Word formlarına hemen yansır. Bu sayfayı yalnızca siz görürsünüz.</p></div>
+  <section class="panel"><h2>Anabilim dalları</h2>${prog('pdr', 'Rehberlik ve Psikolojik Danışmanlık')}${prog('aed', 'Aile Danışmanlığı')}</section>
+  <section class="panel"><h2>Danışman ve enstitü</h2><div class="grid3">
+      ${inp('danisman.unvan', 'Danışman unvanı', a.danisman.unvan)}${inp('danisman.adSoyad', 'Danışman adı soyadı', a.danisman.adSoyad)}${inp('danisman.kurum', 'Kurum', a.danisman.kurum)}</div>
+    <div class="grid2" style="gap:12px">${inp('enstitu.ad', 'Enstitü adı', a.enstitu.ad)}${inp('enstitu.mudur', 'Enstitü müdürü (unvanıyla)', a.enstitu.mudur, 'Gelecekte müdür imzalı formlar eklenirse kullanılacak.')}</div></section>
+  <section class="panel"><h2>Yönetmelik</h2>
+    <div class="grid2" style="gap:12px">${inp('yonetmelik.ad', 'Güncel yönetmeliğin adı', a.yonetmelik.ad)}
+      <div class="field"><label for="ay-yonetmelik.ilkDonem">Hangi kayıt döneminden itibaren uygulanıyor</label><select class="input" id="ay-yonetmelik.ilkDonem" data-ayar="yonetmelik.ilkDonem">${KAYIT_DONEMLERI.map(d => `<option ${d === a.yonetmelik.ilkDonem ? 'selected' : ''}>${d}</option>`).join('')}</select><span class="muted" style="font-size:12px">Bu dönemden önce kayıt olanlarda önceki yönetmeliklerin adı görünür.</span></div></div>
+    <h3 style="margin-top:6px">Mezuniyet ve süre koşulları</h3>
+    <div class="grid3">${KURAL_ETIKET.map(([k, e, m]) => inp(`kural.${k}`, e, a.kural[k], `${m}${V && V.kural[k] !== a.kural[k] ? ` · varsayılan: ${V.kural[k]}` : ''}`, 'number')).join('')}</div></section>
+  <section class="panel"><h2>Açıklama metinleri</h2>
+    <div class="field"><label for="ay-metin.faaliyet">Akademik faaliyet şartı (Senato esasları)</label><textarea class="input" id="ay-metin.faaliyet" data-ayar="metin.faaliyet" rows="3">${esc(a.metin.faaliyet)}</textarea><span class="muted" style="font-size:12px">Öğrencilerin "Tez süreci"nde "Akademik faaliyet şartı" adımının altında görünür.</span></div></section>
+  <div class="row kaydet-bar"><button class="btn primary" data-a="ayar-kaydet">Ayarları kaydet</button><span class="muted" style="font-size:13px">Müfredattaki ders listesinde değişiklik olursa bana iletin; dersler bu sayfadan değil, programın ders listesinden güncellenir.</span></div>`;
+}
 function hatirlatmaHTML() {
   const h = S.hatirlatma;
   if (!h) { hatirlatmaYukle(); return '<div class="loading" style="min-height:30vh">Yükleniyor…</div>'; }
@@ -870,6 +907,17 @@ document.addEventListener('click', async e => {
       case 'cikis': await api('/cikis', { method: 'POST', body: {} }); S.ben = null; S.students = []; S.ekran = 'giris'; S.modal = null; break;
       case 'toggle': if (innerWidth <= 760) S.mopen = !S.mopen; else S.collapsed = !S.collapsed; break;
       case 'nav': if (el.dataset.k === 'hatirlatma') S.hatirlatma = null; S.section = el.dataset.k; S.mopen = false; S.notEdit = null; S.ekleKod = null; if (isAdv() && ['ogrenciler', 'onaylar'].includes(el.dataset.k)) S.viewing = null; scrollTo(0, 0); break;
+      case 'ayar-kaydet': {
+        const yeni = JSON.parse(JSON.stringify(AYAR));
+        document.querySelectorAll('[data-ayar]').forEach(i => {
+          const yol = i.dataset.ayar.split('.'); let o = yeni;
+          for (const k of yol.slice(0, -1)) o = o[k];
+          o[yol[yol.length - 1]] = i.type === 'number' ? Number(i.value) : i.value;
+        });
+        const r = await api('/ayarlar', { method: 'PUT', body: yeni });
+        AYAR = ayarUygula(ayarBirlestir(r.ayar)); await yukleHepsi();
+        toast('Ayarlar kaydedildi', 'Tüm öğrencilerin hesapları ve formları güncellendi.');
+        break; }
       case 'hatirlatma-gonder': { const r = await api('/hatirlatmalar/gonder', { method: 'POST', body: {} }); S.hatirlatma = null; toast(`${r.gonderilen} hatırlatma gönderildi`); break; }
       case 'ac': S.viewing = el.dataset.s; S.section = el.dataset.k || 'genel'; scrollTo(0, 0); break;
       case 'ekle-ac': S.ekleAcik = !S.ekleAcik; S.topluAcik = false; break;
@@ -1078,6 +1126,7 @@ async function baslat() {
   try {
     const me = await api('/ben', { anon: true });
     S.ben = me.kullanici; S.mailVar = me.mailVar;
+    try { const a = await api('/ayarlar'); AYAR = ayarUygula(ayarBirlestir(a.ayar)); S.varsayilan = a.varsayilan; } catch {}
     await yukleHepsi();
     S.ekran = 'uygulama';
     S.section = isAdv() ? 'ogrenciler' : (S.students[0] && !S.students[0].profilTamam ? 'kisisel' : 'genel');

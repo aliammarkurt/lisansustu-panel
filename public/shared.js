@@ -105,10 +105,44 @@ ADIMLAR.forEach(g => g.items.forEach(i => { ADIM[i.k] = { ...i, grup: g.grup }; 
 
 export const KAYIT_DONEMLERI = ['2023-2024 Güz', '2023-2024 Bahar', '2024-2025 Güz', '2024-2025 Bahar', '2025-2026 Güz', '2025-2026 Bahar', '2026-2027 Güz', '2026-2027 Bahar', '2027-2028 Güz', '2027-2028 Bahar'];
 
-export function bosTez() {
+export function bosTez(ayar) {
+  const d = (ayar || AYAR_VARSAYILAN).danisman;
   return {
     baslikTr: '', baslikEn: '', oneriTarih: '', komisyon: ['', '', ''],
     sinavTarih: '', sinavSaat: '', sinavYer: '',
-    juri: [{ u: 'Dr. Öğr. Üyesi', a: 'Ali Ammar Kurt', k: 'Mersin Üniversitesi' }, { u: '', a: '', k: '' }, { u: '', a: '', k: '' }, { u: '', a: '', k: '' }, { u: '', a: '', k: '' }],
+    juri: [{ u: d.unvan, a: d.adSoyad, k: d.kurum }, { u: '', a: '', k: '' }, { u: '', a: '', k: '' }, { u: '', a: '', k: '' }, { u: '', a: '', k: '' }],
   };
 }
+
+/* ---------------- Ayarlar (danışman panelinden güncellenir) ---------------- */
+export const AYAR_VARSAYILAN = {
+  danisman: { unvan: 'Dr. Öğr. Üyesi', adSoyad: 'Ali Ammar Kurt', kurum: 'Mersin Üniversitesi' },
+  enstitu: { ad: 'Eğitim Bilimleri Enstitüsü', mudur: '' },
+  programlar: {
+    pdr: { ad: 'Rehberlik ve Psikolojik Danışmanlık Tezli Yüksek Lisans', kisa: 'PDR Tezli YL', abd: 'Eğitim Bilimleri Anabilim Dalı', baskan: 'Prof. Dr. Tuğba Yanpar' },
+    aed: { ad: 'Aile Danışmanlığı Tezli Yüksek Lisans', kisa: 'Aile Danışmanlığı Tezli YL', abd: 'Aile Eğitimi ve Danışmanlığı Anabilim Dalı', baskan: 'Prof. Dr. Burhan Çapri' },
+  },
+  yonetmelik: { ad: '28/6/2026 tarihli Mersin Üniversitesi Lisansüstü Eğitim-Öğretim ve Sınav Yönetmeliği', ilkDonem: '2026-2027 Güz' },
+  kural: { krediMin: 21, dersMin: 7, aktsMin: 120, gecmeNotu: 70, gnoMin: 70, normalSure: 4, azamiSure: 6, konuSonYariyil: 2, ciltliGun: 30, lisansDersMax: 2, disDersMax: 2 },
+  metin: { faaliyet: 'Senato tarafından kabul edilen akademik faaliyetler (M23/1). Ayrıntılar daha sonra eklenecek.' },
+};
+
+// Kayıtlı ayarları varsayılanların üzerine güvenle birleştirir
+export function ayarBirlestir(kayitli) {
+  const v = JSON.parse(JSON.stringify(AYAR_VARSAYILAN));
+  const k = kayitli || {};
+  for (const grup of ['danisman', 'enstitu', 'yonetmelik', 'kural', 'metin']) Object.assign(v[grup], k[grup] || {});
+  for (const p of Object.keys(v.programlar)) Object.assign(v.programlar[p], (k.programlar || {})[p] || {});
+  for (const x of Object.keys(v.kural)) { const n = Number(v.kural[x]); v.kural[x] = Number.isFinite(n) && n >= 0 ? n : AYAR_VARSAYILAN.kural[x]; }
+  return v;
+}
+
+// Ayarları ortak tanımlara uygular (program adları, ABD başkanları, faaliyet açıklaması)
+export function ayarUygula(a) {
+  for (const [p, d] of Object.entries(a.programlar)) if (PROGRAMS[p]) Object.assign(PROGRAMS[p], { ad: d.ad, kisa: d.kisa, abd: d.abd, baskan: d.baskan });
+  if (ADIM.faaliyet) ADIM.faaliyet.not = a.metin.faaliyet;
+  const f = ADIMLAR.find(g => g.grup === 'hazirlik')?.items.find(i => i.k === 'faaliyet');
+  if (f) f.not = a.metin.faaliyet;
+  return a;
+}
+export const danismanAdi = a => `${a.danisman.unvan} ${a.danisman.adSoyad}`.trim();
