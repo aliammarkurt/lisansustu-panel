@@ -18,7 +18,7 @@ const parse = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d
 
 function gecti(r, c, K) {
   if (SONUCLU.includes(c.tur) || r.notu == null) return r.sonuc === 'basarili';
-  return r.notu >= K.gecmeNotu && (r.final == null || r.final >= K.gecmeNotu);
+  return r.notu >= K.gecmeNotu;
 }
 
 // Tek öğrenci için bugün geçerli hatırlatmalar
