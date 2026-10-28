@@ -1,4 +1,12 @@
+// Lisansüstü Panel — © 2026 Dr. Öğr. Üyesi Ali Ammar Kurt. Tüm hakları saklıdır.
 // Hem tarayıcıda hem sunucuda (Worker) kullanılan ortak tanımlar: müfredat ve tez adımları.
+
+export const TELIF = {
+  gelistiren: 'Dr. Öğr. Üyesi Ali Ammar Kurt',
+  yil: '2026',
+  site: 'https://aliammarkurt.com',
+  metin: 'Lisansüstü Panel, Dr. Öğr. Üyesi Ali Ammar Kurt tarafından tasarlanmış ve geliştirilmiştir. © 2026 Tüm hakları saklıdır.',
+};
 
 const C = (kod, ad, kredi, akts, tur) => ({ kod, ad, kredi, akts, tur });
 

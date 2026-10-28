@@ -1,5 +1,6 @@
 // Lisansüstü Panel — arayüz
-import { PROGRAMS, TUR_AD, SONUCLU, ADIMLAR, ADIM, KAYIT_DONEMLERI } from './shared.js';
+// © 2026 Dr. Öğr. Üyesi Ali Ammar Kurt. Tüm hakları saklıdır.
+import { PROGRAMS, TUR_AD, SONUCLU, ADIMLAR, ADIM, KAYIT_DONEMLERI, TELIF } from './shared.js';
 import { belgeVerisi, BELGE_SABLON, dosyaAdi, ilgiEki } from './belge-veri.js';
 
 const DANISMAN = 'Dr. Öğr. Üyesi Ali Ammar Kurt';
@@ -262,10 +263,11 @@ Panelde yalnızca adın, e-posta adresin, öğrenci numaran, programın, kayıt 
 Bu bilgileri yalnızca sen ve danışmanın görebilir. Veriler, 6698 sayılı Kişisel Verilerin Korunması Kanunu kapsamında, tez danışmanlığı sürecinin yürütülmesi amacıyla ve yalnızca bu süreç boyunca işlenir; Cloudflare altyapısında şifreli bağlantıyla saklanır ve üçüncü kişilerle paylaşılmaz. Bildirim e-postaları bir e-posta gönderim hizmeti aracılığıyla iletilir.
 Mezuniyetin ya da programdan ayrılmanın ardından danışmanından verilerinin silinmesini isteyebilirsin. Sorular için: aliammarkurt@mersin.edu.tr`;
 
+const telifSatiri = () => `<footer class="telif"><span class="telif-mark">LP</span><span>Lisansüstü Panel · Tasarım ve geliştirme: <a href="${TELIF.site}" target="_blank" rel="noopener">${esc(TELIF.gelistiren)}</a></span><span>© ${TELIF.yil} Tüm hakları saklıdır.</span></footer>`;
 function kartSar(ic2) {
   return `<div class="login"><div class="login-card">
     <div class="row" style="justify-content:space-between"><div class="brand"><span class="mark">LP</span><span>Lisansüstü Panel</span></div>${temaBtn()}</div>
-    ${ic2}</div></div>`;
+    ${ic2}</div>${telifSatiri()}</div>`;
 }
 function girisHTML() {
   return kartSar(`
@@ -336,7 +338,7 @@ function render() {
     const n = Object.values(s.adim).filter(x => x === 'onay').length;
     nav += OGR_MENU.map(([k, t]) => navi(k, t, k === 'tez' ? n : 0)).join('');
   }
-  nav += `<div style="margin-top:auto"></div>` + navi('hesap', 'Hesabım') + `<button class="navi" data-a="cikis">${ic('cikis')}<span class="t">Çıkış</span></button>`;
+  nav += `<div style="margin-top:auto"></div>` + navi('hesap', 'Hesabım') + `<button class="navi" data-a="cikis">${ic('cikis')}<span class="t">Çıkış</span></button><div class="side-telif t">© ${TELIF.yil} ${esc(TELIF.gelistiren)}<br>Tüm hakları saklıdır.</div>`;
   root.innerHTML = `
   <div class="app">
     <header class="topbar">
@@ -346,7 +348,7 @@ function render() {
     </header>
     <div class="body ${S.collapsed ? 'collapsed' : ''} ${S.mopen ? 'mopen' : ''}">
       <nav class="side" aria-label="Menü">${nav}</nav>
-      <main class="main"><div class="wrap">${anaIcerik()}</div></main>
+      <main class="main"><div class="wrap">${anaIcerik()}${telifSatiri()}</div></main>
     </div>
   </div>`;
   renderModal();

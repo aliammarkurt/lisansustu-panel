@@ -1,7 +1,8 @@
 // Lisansüstü Panel — Cloudflare Worker
 // API (/api/*) burada; arayüz dosyaları public/ klasöründen sunulur.
 
-import { PROGRAMS, ADIM, SONUCLU, KAYIT_DONEMLERI, bosTez } from '../public/shared.js';
+// Lisansüstü Panel — © 2026 Dr. Öğr. Üyesi Ali Ammar Kurt. Tüm hakları saklıdır.
+import { PROGRAMS, ADIM, SONUCLU, KAYIT_DONEMLERI, bosTez, TELIF } from '../public/shared.js';
 import { hatirlatmalar, haftalikOzet } from './hatirlatma.js';
 
 const SESSION_DAYS = 30;
@@ -87,7 +88,7 @@ async function sendMail(env, to, subject, text) {
       body: JSON.stringify({
         from: env.MAIL_FROM || 'Lisansüstü Panel <panel@aliammarkurt.com>',
         to: [to], subject,
-        text: `${text}\n\nPanele git: ${appUrl(env)}\n\n— Lisansüstü Panel`,
+        text: `${text}\n\nPanele git: ${appUrl(env)}\n\n—\n${TELIF.metin}`,
       }),
     });
     return r.ok;

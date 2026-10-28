@@ -1,0 +1,21 @@
+Lisansüstü Panel
+Copyright © 2026 Dr. Öğr. Üyesi Ali Ammar Kurt. Tüm hakları saklıdır. / All rights reserved.
+
+Bu yazılımın (kaynak kodu, arayüz tasarımı, kural motoru, form şablonlarının hazırlanma
+yöntemi, metinler ve belgeler dahil) tüm fikri ve sınai mülkiyet hakları
+Dr. Öğr. Üyesi Ali Ammar Kurt'a aittir. Kaynak kodunun herkese açık bir depoda
+bulunması herhangi bir kullanım, kopyalama, değiştirme veya dağıtım izni vermez.
+
+Yazılım; hak sahibinin önceden yazılı izni olmaksızın kopyalanamaz, çoğaltılamaz,
+değiştirilemez, dağıtılamaz, satılamaz, kiralanamaz veya başka bir hizmette
+kullanılamaz. İzin talepleri için: aliammarkurt@mersin.edu.tr
+
+Hak sahibinin izniyle kurulan her kurulumda, arayüzdeki ve e-postalardaki
+"Tasarım ve geliştirme: Dr. Öğr. Üyesi Ali Ammar Kurt" ibaresi ve telif bildirimi
+kaldırılamaz ve değiştirilemez.
+
+Üçüncü taraf bileşenler kendi lisanslarına tabidir:
+- docxtemplater (public/vendor/docxtemplater.min.js)
+- PizZip (public/vendor/pizzip.min.js)
+Resmî form şablonları (public/sablonlar/) Mersin Üniversitesi Eğitim Bilimleri
+Enstitüsü'ne aittir; panel bu formları yalnızca doldurmak amacıyla kullanır.
