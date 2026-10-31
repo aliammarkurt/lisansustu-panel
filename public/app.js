@@ -815,6 +815,17 @@ function ogrencilerHTML() {
   const dikkat = aktif.filter(s => riskler(s).some(r => r.lv)).length;
   const sayi = k => aktif.filter(s => s.program === k).length;
   const gruplar = Object.keys(PROGRAMS).map(k => ({ k, L: gorunen.filter(s => s.program === k) })).filter(g => g.L.length);
+  const davetli = aktif.filter(s => s.davetBekliyor);
+  const davetHTML = !davetli.length && !S.davetSonuc ? '' : `<section class="panel davetp">
+    ${S.davetSonuc ? `<div class="checks">${S.davetSonuc.map(r => `<div class="chk ${r.mailGitti ? 'tamam' : 'bekliyor'}"><span class="ic">${r.mailGitti ? '✓' : '!'}</span><div>${esc(r.email)}<div class="ref">${r.mailGitti ? 'Hatırlatma ve yeni bağlantı e-postayla gönderildi' : 'E-posta gitmedi; bağlantıyı elle iletin'}</div></div><span></span></div>`).join('')}</div>
+      ${S.davetSonuc.some(r => !r.mailGitti) ? `<div class="linkbox"><code id="son-link" style="white-space:pre-wrap">${esc(S.davetSonuc.filter(r => !r.mailGitti).map(r => r.email + ' : ' + r.link).join('\n'))}</code><button class="btn small" data-a="kopyala-toplu">Kopyala</button></div>` : ''}
+      <button class="linkbtn" data-a="davet-sonuc-kapat">Kapat</button>` : `
+    <div class="row" style="justify-content:space-between"><div><b>${davetli.length} öğrenci panele henüz giriş yapmadı</b><div class="muted" style="font-size:13.5px">Davet bağlantılarını açıp şifrelerini belirlemediler.</div></div>
+      <button class="btn small ${S.davetAcik ? '' : 'primary'}" data-a="davet-ac">${S.davetAcik ? 'Kapat' : 'Hatırlatma gönder'}</button></div>
+    ${S.davetAcik ? `<div class="checks">${davetli.map(s => { const d = s.davet || {}, g = gunOnce(d.son); return `<label class="chk bekliyor" style="cursor:pointer"><input type="checkbox" class="davet-sec" value="${s.id}" checked style="margin:3px 0 0"><div>${esc(s.profilTamam ? s.ad : s.eposta)}${s.profilTamam ? `<span class="muted"> · ${esc(s.eposta)}</span>` : ''}<div class="ref">${esc(PROGRAMS[s.program].kisa)}${d.sayi ? ` · ${d.sayi === 1 ? 'yalnızca ilk davet gönderildi' : `${d.sayi} kez davet edildi`}` : ''}${g != null ? `, son ${gunOnceFmt(g)}` : ''}${g != null && g >= 14 ? ' · bağlantının süresi dolmuş' : ''}</div></div><span></span></label>`; }).join('')}</div>
+      <p class="muted" style="margin:0;font-size:13px">Her öğrenciye ${S.mailVar ? 'kısa bir hatırlatma e-postasıyla ' : ''}yeni bir davet bağlantısı (14 gün geçerli) oluşturulur; eski bağlantılar çalışmaz hâle gelir.${S.mailVar ? '' : ' E-posta gönderimi ayarlı olmadığı için bağlantıları kopyalayıp sizin iletmeniz gerekecek.'}</p>
+      <div class="row"><button class="btn primary" data-a="davet-gonder" ${S.mesgul ? 'disabled' : ''}>${S.mesgul ? 'Gönderiliyor…' : 'Seçilenlere gönder'}</button><span class="muted" style="font-size:13px">Her öğrenci için yaklaşık 1 saniye sürer.</span></div>` : ''}`}
+  </section>`;
   const listeHTML = gruplar.map(g => `<div class="pgrup prg-${g.k}"><span class="pdot"></span><span>${esc(PROGRAMS[g.k].kisa)}</span><span class="pn">${g.L.length}${g.L.length !== sayi(g.k) ? ' / ' + sayi(g.k) : ''}</span><span class="phr"></span></div><div class="slist">${g.L.map(kart).join('')}</div>`).join('');
   return `
   <div class="row" style="justify-content:space-between"><div><span class="eyebrow">Danışman paneli</span><h1 style="font-size:30px;margin-top:4px">Öğrencilerim</h1></div>
@@ -856,6 +867,7 @@ function ogrencilerHTML() {
     <button class="stat stat-btn ${dikkat ? 'uyar' : ''}" data-a="liste-filtre" data-k="${LA.filtre === 'risk' ? 'tumu' : 'risk'}"><span class="eyebrow">Dikkat gerektiren</span><span class="v mono">${dikkat}</span></button>
     <div class="stat"><span class="eyebrow">Planlanan savunma</span><span class="v mono">${aktif.filter(s => s.tez.sinavTarih && s.adim.savunma !== 'tamam').length}</span></div>
   </div>
+  ${davetHTML}
   ${aktif.length ? `<div class="lbar"><div class="chips">${LISTE_FILTRE.map(([k, t]) => `<button class="chip ${LA.filtre === k ? 'on' : ''}" data-a="liste-filtre" data-k="${k}">${t}</button>`).join('')}</div>
     <label class="row" style="gap:8px;flex-wrap:nowrap"><span class="muted" style="font-size:13px;white-space:nowrap">Sırala</span><select class="input" data-a="liste-sira" style="width:auto;padding:6px 10px;font-size:13.5px">${LISTE_SIRA.map(([k, t]) => `<option value="${k}" ${LA.sira === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>` : ''}
   ${listeHTML || (aktif.length ? '<section class="panel"><p class="muted" style="margin:0">Bu filtreye uyan öğrenci yok.</p></section>' : '<section class="panel"><p class="muted" style="margin:0">Henüz öğrenci yok. "Öğrenci ekle" ile ilk öğrencinizi ekleyin.</p></section>')}
@@ -1178,6 +1190,16 @@ document.addEventListener('click', async e => {
       case 'hatirlatma-gonder': { const r = await api('/hatirlatmalar/gonder', { method: 'POST', body: {} }); S.hatirlatma = null; toast(`${r.gonderilen} hatırlatma gönderildi`); break; }
       case 'ac': S.viewing = el.dataset.s; S.section = el.dataset.k || 'genel'; S.yorumAcik = el.dataset.y ? +el.dataset.y : null; S.gForm = el.dataset.g ? { mod: 'planla', id: +el.dataset.g } : null; S.iptalAcik = null; S.yeniDosya = null; scrollTo(0, 0); break;
       case 'liste-filtre': listeAyar().filtre = el.dataset.k; listeKaydet(); break;
+      case 'davet-ac': S.davetAcik = !S.davetAcik; break;
+      case 'davet-sonuc-kapat': S.davetSonuc = null; break;
+      case 'davet-gonder': {
+        const ids = [...document.querySelectorAll('.davet-sec:checked')].map(x => x.value);
+        if (!ids.length) { toast('Öğrenci seçin'); return; }
+        S.mesgul = true; render();
+        try { const r = await api('/ogrenciler/davet-hatirlat', { method: 'POST', body: { ids } }); S.davetSonuc = r.sonuc; S.davetAcik = false; await yukleHepsi();
+          const n = r.sonuc.filter(x => x.mailGitti).length; toast(n ? `${n} öğrenciye hatırlatma gönderildi` : 'Yeni bağlantılar oluşturuldu', n < r.sonuc.length ? 'E-posta gitmeyenlerin bağlantılarını kopyalayıp iletin.' : ''); }
+        finally { S.mesgul = false; }
+        break; }
       case 'zaman-filtre': S.zamanFiltre = el.dataset.k; break;
       case 'yorum-ac': S.yorumAcik = +el.dataset.id; break;
       case 'dosya-vazgec': S.yeniDosya = null; break;

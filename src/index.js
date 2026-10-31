@@ -154,13 +154,15 @@ const gorusmeJson = (r, adv) => ({
 async function loadStudent(env, id, ayar, adv = false) {
   const s = await env.DB.prepare(`SELECT u.id, u.email, u.ad, u.pass_hash, st.* FROM users u JOIN students st ON st.user_id = u.id WHERE u.id = ?`).bind(id).first();
   if (!s) return null;
-  const [c, f, m, y, g, son] = await env.DB.batch([
+  const [c, f, m, y, g, son, dv] = await env.DB.batch([
     env.DB.prepare(`SELECT * FROM courses WHERE student_id = ? ORDER BY donem, id`).bind(id),
     env.DB.prepare(`SELECT id, v, ad, boyut, tur, created_at, aciklama FROM files WHERE student_id = ? ORDER BY v DESC`).bind(id),
     env.DB.prepare(`SELECT kimden, metin, created_at FROM messages WHERE student_id = ? ORDER BY id`).bind(id),
     env.DB.prepare(`SELECT id, file_id, kimden, metin, ek_ad, ek_boyut, created_at FROM file_comments WHERE student_id = ? ORDER BY id`).bind(id),
     env.DB.prepare(`SELECT * FROM meetings WHERE student_id = ? ORDER BY COALESCE(tarih, created_at) DESC, id DESC`).bind(id),
     env.DB.prepare(SON_ETKINLIK_SQL).bind(id),
+    // Davet geçmişi: ilk davet (ogrenci-eklendi) + sonradan gönderilen davet hatırlatmaları
+    env.DB.prepare(`SELECT COUNT(*) n, MAX(created_at) son FROM events WHERE student_id = ? AND action IN ('ogrenci-eklendi', 'davet-gonderildi')`).bind(id),
   ]);
   const yorumlar = {};
   for (const r of y.results) (yorumlar[r.file_id] ||= []).push({ id: r.id, kimden: r.kimden, m: r.metin, t: r.created_at, ek: r.ek_ad ? { ad: r.ek_ad, boyut: r.ek_boyut } : null });
@@ -170,6 +172,7 @@ async function loadStudent(env, id, ayar, adv = false) {
     id: s.id, ad: s.ad, eposta: s.email, no: s.no || '', program: s.program, kayit: s.kayit,
     donem: s.donem, danismanDonem: s.danisman_donem, statu: s.statu || '', arsiv: !!s.arsiv, kayitTuru: s.kayit_turu || 'normal', profilTamam: s.profil_tamam !== 0, foto: s.foto_v || 0,
     davetBekliyor: !s.pass_hash, kvkk: s.kvkk_at,
+    ...(adv && !s.pass_hash ? { davet: { sayi: dv.results[0]?.n || 0, son: dv.results[0]?.son || null } } : {}),
     tez: (() => { const t = { ...bosTez(), ...parse(s.tez, {}) }; if (ayar) t.juri = [{ u: ayar.danisman.unvan, a: ayar.danisman.adSoyad, k: ayar.danisman.kurum }, ...t.juri.slice(1)]; return t; })(),
     adim: parse(s.adim, {}), adimTarih,
     dersler: c.results.map(r => ({ id: r.id, kod: r.kod, donem: r.donem, durum: r.durum, not: r.notu, final: r.final, sonuc: r.sonuc, kaynak: r.kaynak })),
@@ -437,6 +440,25 @@ async function route(req, env, ctx, url) {
     return json({ ok: true, sonuc });
   }
 
+  // Henüz şifresini belirlememiş öğrencilere yeni davet bağlantısıyla hatırlatma
+  if (p === '/api/ogrenciler/davet-hatirlat' && M === 'POST') {
+    if (!isAdv) fail(403, 'Yetkin yok.');
+    const b = await body(req);
+    const secili = Array.isArray(b.ids) ? new Set(b.ids.map(String)) : null;
+    const L = (await env.DB.prepare(`SELECT u.id, u.email, u.ad, st.profil_tamam FROM users u JOIN students st ON st.user_id = u.id WHERE u.role = 'ogrenci' AND u.active = 1 AND u.pass_hash IS NULL AND st.arsiv = 0 ORDER BY u.ad`).all()).results
+      .filter(s => !secili || secili.has(s.id)).slice(0, 60);
+    if (!L.length) fail(400, 'Davet bekleyen öğrenci yok.');
+    const sonuc = [];
+    for (const s of L) {
+      const link = await makeToken(env, s.id, 'invite');
+      const gitti = await sendMail(env, s.email, 'Hatırlatma: Lisansüstü Panel davetin', davetHatirlatmaMetni(s, user, link));
+      await log(env, s.id, user.id, 'davet-gonderildi', gitti ? 'e-posta' : 'bağlantı');
+      sonuc.push({ id: s.id, email: s.email, link, mailGitti: gitti });
+      if (env.RESEND_API_KEY) await new Promise(r => setTimeout(r, 600)); // e-posta hizmetinin saniyedeki gönderim sınırı için
+    }
+    return json({ ok: true, sonuc });
+  }
+
   if ((m = p.match(/^\/api\/ogrenciler\/([\w-]+)$/))) {
     const sid = m[1];
     if (M === 'GET') { await studentOr404(env, user, sid); return json({ ogrenci: await loadStudent(env, sid, ayar, isAdv) }); }
@@ -467,8 +489,9 @@ async function route(req, env, ctx, url) {
     const u = await env.DB.prepare(`SELECT pass_hash FROM users WHERE id = ?`).bind(m[1]).first();
     const tur = u.pass_hash ? 'reset' : 'invite';
     const link = await makeToken(env, m[1], tur);
-    const gitti = await sendMail(env, s.email, tur === 'reset' ? 'Şifre yenileme bağlantın' : 'Lisansüstü Panel davetin',
-      `Merhaba ${s.ad},\n\n${tur === 'reset' ? 'Danışmanın senin için şifre yenileme bağlantısı oluşturdu' : 'Lisansüstü Panel davet bağlantın'}:\n${link}`);
+    const gitti = tur === 'invite' ? await sendMail(env, s.email, 'Hatırlatma: Lisansüstü Panel davetin', davetHatirlatmaMetni(s, user, link))
+      : await sendMail(env, s.email, 'Şifre yenileme bağlantın', `Merhaba ${s.ad},\n\nDanışmanın senin için şifre yenileme bağlantısı oluşturdu:\n${link}`);
+    if (tur === 'invite') await log(env, m[1], user.id, 'davet-gonderildi', gitti ? 'e-posta' : 'bağlantı');
     return json({ ok: true, link, mailGitti: gitti });
   }
 
@@ -807,6 +830,13 @@ async function route(req, env, ctx, url) {
   fail(404, 'Bulunamadı.');
 }
 
+/* ---------------- Davet hatırlatması ---------------- */
+function davetHatirlatmaMetni(s, user, link) {
+  // Toplu eklenen öğrenci adını henüz girmedi (ad = e-posta öneki); o durumda isimsiz selamla
+  const ad = s.profil_tamam === 0 ? '' : ' ' + String(s.ad || '').split(' ')[0];
+  return `Merhaba${ad},\n\nDanışmanın ${user.ad} seni Lisansüstü Panel'e davet etmişti; henüz hesabını açmadığını görüyoruz.\n\nPanelde ders ve tez sürecini takip edebilir, tez dosyalarını yükleyebilir, danışmanınla yazışabilir ve görüşme talep edebilirsin. Hesabını açmak yalnızca bir dakika sürer: aşağıdaki bağlantıya tıklayıp şifreni belirlemen yeterli.\n\n${link}\n\nBağlantı ${INVITE_DAYS} gün geçerlidir; daha önce gelen davet bağlantıları artık çalışmaz. Bir sorun yaşarsan bu e-postayı yanıtlamak yerine danışmanına doğrudan yaz.`;
+}
+
 /* ---------------- Dosya ve görüşme yardımcıları ---------------- */
 const DOSYA_UZANTI = ['doc', 'docx', 'pdf', 'odt', 'rtf'];
 function dosyaKontrol(f) {
@@ -870,6 +900,7 @@ async function zamanCizelgesi(env, s, sid) {
     else if (a === 'profil') ekle(e.created_at, kim, 'bilgi', 'Kişisel bilgiler güncellendi');
     else if (a === 'tez-bilgi') ekle(e.created_at, kim, 'bilgi', 'Tez bilgileri güncellendi', d);
     else if (a === 'ogrenci-eklendi') ekle(e.created_at, 'danisman', 'bilgi', 'Panele eklendi');
+    else if (a === 'davet-gonderildi') ekle(e.created_at, 'danisman', 'hatirlatma', 'Davet hatırlatması gönderildi', d === 'e-posta' ? 'Yeni bağlantı e-postayla gitti' : 'Yeni bağlantı oluşturuldu');
     else if (a === 'gorusme-talep') ekle(e.created_at, kim, 'gorusme', 'Görüşme talep edildi', d);
     else if (a === 'gorusme-geri-cek') ekle(e.created_at, kim, 'gorusme', 'Görüşme talebi geri çekildi');
     else if (a === 'gorusme-planla') ekle(e.created_at, kim, 'gorusme', 'Görüşme planlandı', trZaman(d));
