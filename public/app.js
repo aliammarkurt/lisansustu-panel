@@ -16,6 +16,7 @@ const S = {
   collapsed: false, mopen: false, modal: null, gecici: null, celebrate: null,
   notEdit: null, ekleKod: null, ekleAcik: false, sonLink: null, token: null, tokenBilgi: null, hata: '',
   mesgul: false,
+  zaman: {}, zamanFiltre: 'hepsi', gForm: null, iptalAcik: null, yeniDosya: null, yorumAcik: null, liste: null,
 };
 const isAdv = () => S.ben?.rol === 'danisman';
 const st = id => S.students.find(s => s.id === id);
@@ -48,6 +49,7 @@ async function yenile(sid) {
   const d = await api('/ogrenciler/' + sid);
   const i = S.students.findIndex(s => s.id === sid);
   if (i >= 0) S.students[i] = d.ogrenci; else S.students.push(d.ogrenci);
+  delete S.zaman[sid];
 }
 
 /* ======================== TEMA ======================== */
@@ -213,6 +215,8 @@ function hatirlatmalar(s) {
   if (s.donem >= K().konuSonYariyil && s.adim.konu !== 'tamam') L.push(`Tez konusu ${K().konuSonYariyil}. yarıyıl sonuna kadar belirlenmeli.`);
   if (s.kayitTuru !== 'af' && s.donem >= K().normalSure && (a.ders < K().dersMin || a.kredi < K().krediMin || a.sem < 1)) L.push(`${K().normalSure}. yarıyıl sonunda kredili dersler ve seminer tamamlanmış olmalı.`);
   if (s.kayitTuru !== 'af' && s.donem > K().normalSure) L.push(`Azami süre: ${Math.max(0, K().azamiSure - s.donem + 1)} yarıyıl kaldı.`);
+  for (const g of (s.gorusmeler || []).filter(g => g.durum === 'planli' && (g.tarih || '').slice(0, 10) >= bugunIso())) L.push(`Görüşme: ${zamanFmt(g.tarih)}${g.bicim === 'cevrimici' ? ' (çevrim içi)' : ''}.`);
+  for (const g of acikGorevler(s)) L.push(`${isAdv() ? 'Açık görev' : 'Görevin'}: ${g.gorev}${g.gorevTarih ? ` (hedef ${zamanFmt(g.gorevTarih)}${gecikmisGorev(g) ? ', geçti' : ''})` : ''}.`);
   if (s.program === 'pdr' && a.ders >= K().dersMin - 1 && a.ders < K().dersMin && !s.dersler.some(r => r.durum !== 'tamam' && kat(s, r.kod).tur === 'secmeli')) L.push('7. kredili ders için bir seçmeli daha gerekiyor.');
   return L;
 }
@@ -221,7 +225,12 @@ function bekleyenler() {
   for (const s of S.students) {
     if (s.arsiv) continue;
     for (const k in s.adim) if (s.adim[k] === 'onay') L.push({ s, tip: 'adim', k, ad: ADIM[k]?.ad || k, ek: `Tez süreci · gönderim ${tarihFmt(s.adimTarih[k]) || ''}` });
-    s.dosyalar.forEach(d => { if (!d.yorum) L.push({ s, tip: 'dosya', id: d.id, ad: `Yeni tez sürümü v${d.v}`, ek: `${d.ad} · ${tarihFmt(d.tarih)}` }); });
+    s.dosyalar.forEach(d => {
+      const Y = d.yorumlar || [], dan = Y.some(y => y.kimden === 'danisman');
+      if (!dan) L.push({ s, tip: 'dosya', id: d.id, ad: `Yeni tez sürümü v${d.v}`, ek: `${d.ad} · ${tarihFmt(d.tarih)}${d.aciklama ? ' · ' + d.aciklama.slice(0, 90) : ''}` });
+      else if (Y[Y.length - 1].kimden === 'ogrenci') L.push({ s, tip: 'dosya', id: d.id, ad: `v${d.v} sürümüne yanıt`, ek: `${Y[Y.length - 1].m.slice(0, 90)} · ${tarihFmt(Y[Y.length - 1].t)}` });
+    });
+    (s.gorusmeler || []).forEach(g => { if (g.durum === 'talep') L.push({ s, tip: 'gorusme', id: g.id, ad: 'Görüşme talebi', ek: `${g.konu.slice(0, 120)}${g.tercih ? ' · Uygun: ' + g.tercih : ''} · ${tarihFmt(g.olusturma)}` }); });
   }
   return L;
 }
@@ -270,6 +279,8 @@ const ICON = {
   belgeler: '<path d="M7 3h10v18H7z"/><path d="M10 8h4M10 12h4M10 16h2"/>',
   mezuniyet: '<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2 9 2 12 0v-5"/>',
   notlar: '<path d="M4 5h16v11H9l-5 4z"/>',
+  gorusmeler: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M8 14h3"/>',
+  gecmis: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   ogrenciler: '<circle cx="9" cy="8" r="3.5"/><path d="M2 20c1-3.5 3.8-5 7-5s6 1.5 7 5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 15c2 .6 3.4 2.2 4 5"/>',
   onaylar: '<path d="M4 12l5 5L20 6"/>',
   ayarlar: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 010 4h-.1a1.7 1.7 0 00-1.5 1z"/>',
@@ -282,11 +293,11 @@ const ICON = {
 };
 const ic = (k, sz = 19) => `<svg viewBox="0 0 24 24" width="${sz}" height="${sz}" aria-hidden="true">${ICON[k]}</svg>`;
 const temaBtn = () => `<button class="iconbtn" type="button" data-a="tema" aria-label="${tema() === 'dark' ? 'Açık temaya geç' : 'Koyu temaya geç'}" title="${tema() === 'dark' ? 'Açık tema' : 'Koyu tema'}">${ic(tema() === 'dark' ? 'gunes' : 'ay', 18)}</button>`;
-const OGR_MENU = [['genel', 'Genel bakış'], ['kisisel', 'Kişisel bilgiler'], ['dersler', 'Ders durumu'], ['tez', 'Tez süreci'], ['dosyalar', 'Tez dosyaları'], ['belgeler', 'Belgeler'], ['mezuniyet', 'Mezuniyet koşulları'], ['notlar', 'Danışmanla yazışma']];
+const OGR_MENU = [['genel', 'Genel bakış'], ['kisisel', 'Kişisel bilgiler'], ['dersler', 'Ders durumu'], ['tez', 'Tez süreci'], ['dosyalar', 'Tez dosyaları'], ['gorusmeler', 'Görüşmeler'], ['belgeler', 'Belgeler'], ['mezuniyet', 'Mezuniyet koşulları'], ['notlar', 'Danışmanla yazışma'], ['gecmis', 'Zaman çizelgesi']];
 
 /* ======================== GİRİŞ EKRANLARI ======================== */
 const KVKK = `Bu panel, Mersin Üniversitesi Eğitim Bilimleri Enstitüsü'nde Dr. Öğr. Üyesi Ali Ammar Kurt danışmanlığında tezli yüksek lisans yapan öğrencilerin ders ve tez süreçlerini takip etmek için kullanılır.
-Panelde yalnızca adın, e-posta adresin, öğrenci numaran, programın, kayıt dönemin, ders sonuçların, tez bilgilerin (başlık, komisyon, jüri, sınav bilgileri), yüklediğin tez dosyaları, isteğe bağlı profil fotoğrafın ve danışmanınla yazışmaların tutulur. T.C. kimlik numarası ve posta adresi sistemde saklanmaz; gerektiğinde yalnızca formu hazırlarken tarayıcında kullanılır.
+Panelde yalnızca adın, e-posta adresin, öğrenci numaran, programın, kayıt dönemin, ders sonuçların, tez bilgilerin (başlık, komisyon, jüri, sınav bilgileri), yüklediğin tez dosyaları, isteğe bağlı profil fotoğrafın, danışmanınla yazışmaların, sürümlere yazılan yorumlar, görüşme talepleri ve görüşme notları tutulur. T.C. kimlik numarası ve posta adresi sistemde saklanmaz; gerektiğinde yalnızca formu hazırlarken tarayıcında kullanılır.
 Bu bilgileri yalnızca sen ve danışmanın görebilir. Veriler, 6698 sayılı Kişisel Verilerin Korunması Kanunu kapsamında, tez danışmanlığı sürecinin yürütülmesi amacıyla ve yalnızca bu süreç boyunca işlenir; Cloudflare altyapısında şifreli bağlantıyla saklanır ve üçüncü kişilerle paylaşılmaz. Bildirim e-postaları bir e-posta gönderim hizmeti aracılığıyla iletilir.
 Mezuniyetin ya da programdan ayrılmanın ardından danışmanından verilerinin silinmesini isteyebilirsin. Sorular için: aliammarkurt@mersin.edu.tr`;
 
@@ -360,10 +371,11 @@ function render() {
   let nav = '';
   if (adv) {
     nav += `<div class="grp eyebrow">Danışman</div>` + navi('ogrenciler', 'Öğrencilerim') + navi('onaylar', 'Onay bekleyenler', bek.length) + navi('hatirlatma', 'Hatırlatmalar') + navi('ayarlar', 'Ayarlar');
-    if (s) nav += `<div class="grp eyebrow">${esc(s.ad)}</div>` + OGR_MENU.map(([k, t]) => navi(k, t)).join('');
+    if (s) nav += `<div class="grp eyebrow">${esc(s.ad)}</div>` + OGR_MENU.map(([k, t]) => navi(k, t, k === 'gorusmeler' ? s.gorusmeler.filter(g => g.durum === 'talep').length : 0)).join('');
   } else if (s) {
     const n = Object.values(s.adim).filter(x => x === 'onay').length;
-    nav += OGR_MENU.map(([k, t]) => navi(k, t, k === 'tez' ? n : 0)).join('');
+    const g = acikGorevler(s).length + s.gorusmeler.filter(x => x.durum === 'planli' && (x.tarih || '').slice(0, 10) >= bugunIso()).length;
+    nav += OGR_MENU.map(([k, t]) => navi(k, t, k === 'tez' ? n : k === 'gorusmeler' ? g : 0)).join('');
   }
   nav += `<div style="margin-top:auto"></div>` + navi('hesap', 'Hesabım') + `<button class="navi" data-a="cikis">${ic('cikis')}<span class="t">Çıkış</span></button><div class="side-telif t">© ${TELIF.yil} ${esc(TELIF.gelistiren)}<br>Tüm hakları saklıdır.</div>`;
   root.innerHTML = `
@@ -396,7 +408,7 @@ function anaIcerik() {
   if (adv) h += `<div class="viewing">${avatar(s, 28)}<b>${esc(s.ad)}</b> öğrencisinin panelini danışman olarak görüyorsunuz.<button class="btn small" data-a="nav" data-k="ogrenciler" style="margin-left:auto">← Öğrencilerim</button></div>`;
   if (S.celebrate) h += `<div class="celebrate">${esc(S.celebrate)}</div>`;
   h += heroHTML(s);
-  const f = { genel: genelHTML, kisisel: kisiselHTML, dersler: derslerHTML, tez: tezHTML, dosyalar: dosyalarHTML, belgeler: belgelerHTML, mezuniyet: mezuniyetHTML, notlar: notlarHTML }[S.section] || genelHTML;
+  const f = { genel: genelHTML, kisisel: kisiselHTML, dersler: derslerHTML, tez: tezHTML, dosyalar: dosyalarHTML, gorusmeler: gorusmelerHTML, belgeler: belgelerHTML, mezuniyet: mezuniyetHTML, notlar: notlarHTML, gecmis: gecmisHTML }[S.section] || genelHTML;
   return h + f(s);
 }
 
@@ -617,12 +629,27 @@ function juriUyari(t) {
   return `<p style="margin:0;font-size:13.5px">${asilDis ? '✓' : '•'} Asil jüride üniversite dışından üye ${asilDis ? 'var' : 'yok, eklenmeli'} · ${yedekDis ? '✓' : '•'} Yedek jüride üniversite dışından üye ${yedekDis ? 'var' : 'yok, eklenmeli'}</p>`;
 }
 function dosyalarHTML(s) {
-  const adv = isAdv();
+  const adv = isAdv(), Y = S.yeniDosya;
+  const yorumHTML = (d, y) => `<div class="ycm ${y.kimden === 'danisman' ? 'dan' : ''}"><div class="m">${y.kimden === 'danisman' ? 'Danışman' : (adv ? esc(s.ad) : 'Sen')} · ${esc(tarihFmt(y.t))}</div>${satirlar(y.m)}${y.ek ? `<div><a class="ek" href="/api/yorum-ek/${y.id}">📎 ${esc(y.ek.ad)} <span class="muted">(${esc(boyutFmt(y.ek.boyut))})</span></a></div>` : ''}</div>`;
+  const yanitForm = d => `<div class="yform"><textarea class="input" id="yorum-${d.id}" rows="2" placeholder="${adv ? 'Bu sürüme yorum yaz' : 'Yorumlara yanıt yaz'}"></textarea>
+      <div class="row" style="gap:8px"><label class="btn small" style="cursor:pointer">📎 ${adv ? 'Yorumlu dosya ekle' : 'Dosya ekle'}<input type="file" id="yek-${d.id}" accept=".doc,.docx,.pdf,.odt,.rtf" data-a="yek" data-id="${d.id}" hidden></label><span class="muted" id="yek-ad-${d.id}" style="font-size:12.5px"></span>
+      <button class="btn small primary" data-a="yorum" data-id="${d.id}" style="margin-left:auto" ${S.mesgul ? 'disabled' : ''}>Gönder</button></div></div>`;
+  const surum = (d, i) => {
+    const Y2 = d.yorumlar, bekliyor = !Y2.some(y => y.kimden === 'danisman') || Y2[Y2.length - 1].kimden === 'ogrenci';
+    const acik = i === 0 || S.yorumAcik === d.id;
+    return `<div class="ver"><div class="vn">v${d.v}</div><div style="min-width:0;display:grid;gap:8px">
+      <div><b style="word-break:break-all">${esc(d.ad)}</b><div class="muted" style="font-size:13px">${esc(tarihFmt(d.tarih))} · ${esc(boyutFmt(d.boyut))}${adv && bekliyor ? ' · <span class="pill wait">Yanıtınızı bekliyor</span>' : ''}</div></div>
+      ${d.aciklama ? `<div class="degisen"><span class="eyebrow">Bu sürümde değişenler</span><div>${satirlar(d.aciklama)}</div></div>` : ''}
+      ${Y2.length ? `<div class="ythread">${Y2.map(y => yorumHTML(d, y)).join('')}</div>` : (adv ? '' : '<div class="cm muted">Danışman henüz yorum yazmadı.</div>')}
+      ${acik ? (adv || Y2.length ? yanitForm(d) : '') : (adv || Y2.length ? `<button class="linkbtn" data-a="yorum-ac" data-id="${d.id}" style="font-size:13.5px;justify-self:start">${adv ? 'Yorum yaz' : 'Yanıt yaz'}</button>` : '')}
+      </div><a class="btn small" href="/api/dosyalar/${d.id}">İndir</a></div>`;
+  };
   return `<section class="panel"><div class="row" style="justify-content:space-between"><h2>Tez dosyaları</h2><span class="muted" style="font-size:13.5px">Her sürüm saklanır, eskiler silinmez.</span></div>
-    <label class="drop" for="f-up"><b>${adv ? 'Öğrenci adına sürüm yükle' : 'Yeni sürüm yükle'}</b><span class="muted" style="font-size:13.5px">Word, PDF, ODT veya RTF · en fazla 25 MB.${adv ? '' : ' Yüklediğinde danışmanına e-posta gider.'}</span><input id="f-up" type="file" accept=".doc,.docx,.pdf,.odt,.rtf" data-a="yukle" style="max-width:100%" ${S.mesgul ? 'disabled' : ''}></label>
-    <div>${s.dosyalar.length ? s.dosyalar.map(d => `<div class="ver"><div class="vn">v${d.v}</div><div style="min-width:0"><b style="word-break:break-all">${esc(d.ad)}</b><div class="muted" style="font-size:13px">${esc(tarihFmt(d.tarih))} · ${esc(boyutFmt(d.boyut))}</div>
-      ${d.yorum ? `<div class="cm"><span class="eyebrow">Danışman yorumu</span><br>${esc(d.yorum).replace(/\n/g, '<br>')}</div>` : adv ? `<div class="row" style="margin-top:8px"><textarea class="input" id="yorum-${d.id}" rows="2" placeholder="Bu sürüme yorum yaz" style="flex:1 1 200px"></textarea><button class="btn small primary" data-a="yorum" data-id="${d.id}">Gönder</button></div>` : `<div class="cm muted">Danışman henüz yorum yazmadı.</div>`}
-      </div><a class="btn small" href="/api/dosyalar/${d.id}">İndir</a></div>`).join('') : `<p class="muted">Henüz dosya yok. İlk sürüm yüklendiğinde burada görünecek.</p>`}</div>
+    ${Y ? `<div class="drop" style="cursor:default"><b>${esc(Y.name)}</b><span class="muted" style="font-size:13px">${esc(boyutFmt(Y.size))} · v${(s.dosyalar[0]?.v || 0) + 1} olarak yüklenecek</span>
+      <div class="field" style="width:100%;text-align:left"><label for="f-aciklama">Bu sürümde neler değişti? <span class="muted" style="font-weight:400">(isteğe bağlı ama ${adv ? 'öğrenci için' : 'danışmanın için'} çok yararlı)</span></label><textarea class="input" id="f-aciklama" rows="3" placeholder="ör. Yöntem bölümüne örneklem gücü analizi eklendi; 2. bölümdeki yorumlara göre kuramsal çerçeve kısaltıldı."></textarea></div>
+      <div class="row"><button class="btn primary" data-a="dosya-yukle" ${S.mesgul ? 'disabled' : ''}>${S.mesgul ? 'Yükleniyor…' : 'Yükle'}</button><button class="btn" data-a="dosya-vazgec">Vazgeç</button></div></div>`
+    : `<label class="drop" for="f-up"><b>${adv ? 'Öğrenci adına sürüm yükle' : 'Yeni sürüm yükle'}</b><span class="muted" style="font-size:13.5px">Word, PDF, ODT veya RTF · en fazla 25 MB.${adv ? '' : ' Yüklediğinde danışmanına e-posta gider.'}</span><input id="f-up" type="file" accept=".doc,.docx,.pdf,.odt,.rtf" data-a="yukle" style="max-width:100%" ${S.mesgul ? 'disabled' : ''}></label>`}
+    <div>${s.dosyalar.length ? s.dosyalar.map(surum).join('') : `<p class="muted">Henüz dosya yok. İlk sürüm yüklendiğinde burada görünecek.</p>`}</div>
   </section>`;
 }
 function mezuniyetHTML(s) {
@@ -770,13 +797,25 @@ function renderModal() {
 function ogrencilerHTML() {
   const bek = bekleyenler();
   const aktif = S.students.filter(s => !s.arsiv), arsiv = S.students.filter(s => s.arsiv);
-  const kart = s => { const p = ilerleme(s), h = hatirlatmalar(s), nb = bek.filter(x => x.s === s).length; return `
-    <button class="scard" data-a="ac" data-s="${s.id}">
-      <div style="display:flex;gap:12px;align-items:flex-start;min-width:0">${avatar(s, 48)}<div style="min-width:0"><div class="nm">${esc(s.ad)}</div><div class="muted" style="font-size:13.5px">${esc(PROGRAMS[s.program].kisa)} · ${s.donem}. yarıyıl${s.no ? ' · ' + esc(s.no) : ''}</div>
-        ${s.kayitTuru === 'af' ? '<span class="pill off" style="margin-top:4px">Af ile dönen</span>' : ''}${s.davetBekliyor ? '<div class="flagnote">• Davet bekliyor (henüz şifre belirlemedi)</div>' : !s.profilTamam ? '<div class="flagnote">• Kişisel bilgilerini henüz tamamlamadı</div>' : ''}${s.arsiv ? '' : h.map(x => `<div class="flagnote">• ${esc(x)}</div>`).join('')}</div></div>
-      <div style="display:grid;gap:6px">${segBar(p, 'mini')}<div class="muted" style="font-size:13px">Sıradaki: ${esc(siradaki(s).b)}</div></div>
+  const LA = listeAyar();
+  const kart = s => { const p = ilerleme(s), R = riskler(s), nb = bek.filter(x => x.s === s).length, son = gunOnce(s.sonEtkinlik); return `
+    <button class="scard prg-${esc(s.program)}" data-a="ac" data-s="${s.id}">
+      <div style="display:flex;gap:12px;align-items:flex-start;min-width:0">${avatar(s, 48)}<div style="min-width:0"><div class="nm">${esc(s.ad)}</div><div class="muted" style="font-size:13.5px">${s.donem}. yarıyıl${s.no ? ' · ' + esc(s.no) : ''}${s.arsiv ? ' · ' + esc(PROGRAMS[s.program].kisa) : ''}</div>
+        ${s.kayitTuru === 'af' ? '<span class="pill off" style="margin-top:4px">Af ile dönen</span>' : ''}
+        ${R.some(r => r.lv) ? `<div class="risks">${R.filter(r => r.lv).sort((a, b) => b.lv - a.lv).map(r => `<span class="pill ${r.lv === 2 ? 'risk' : 'wait'}">${esc(r.t)}</span>`).join('')}</div>` : ''}
+        ${R.filter(r => !r.lv).map(r => `<div class="flagnote muted">• ${esc(r.t)}</div>`).join('')}</div></div>
+      <div style="display:grid;gap:6px">${segBar(p, 'mini')}<div class="muted" style="font-size:13px">Sıradaki: ${esc(siradaki(s).b)}${son != null && !s.arsiv ? ` · son hareket ${gunOnceFmt(son)}` : ''}</div></div>
       <div style="display:grid;justify-items:end;gap:4px"><span class="p">%${Math.round(p.all)}</span>${nb ? `<span class="pill wait">${nb} onay bekliyor</span>` : ''}${s.arsiv ? '<span class="pill off">Arşiv</span>' : ''}</div>
     </button>`; };
+  const uygun = {
+    tumu: () => true, risk: s => riskler(s).some(r => r.lv), onay: s => bek.some(x => x.s === s),
+    savunma: s => s.tez.sinavTarih && s.adim.savunma !== 'tamam', davet: s => s.davetBekliyor || !s.profilTamam,
+  }[LA.filtre] || (() => true);
+  const gorunen = listeSirala(aktif.filter(uygun), LA.sira);
+  const dikkat = aktif.filter(s => riskler(s).some(r => r.lv)).length;
+  const sayi = k => aktif.filter(s => s.program === k).length;
+  const gruplar = Object.keys(PROGRAMS).map(k => ({ k, L: gorunen.filter(s => s.program === k) })).filter(g => g.L.length);
+  const listeHTML = gruplar.map(g => `<div class="pgrup prg-${g.k}"><span class="pdot"></span><span>${esc(PROGRAMS[g.k].kisa)}</span><span class="pn">${g.L.length}${g.L.length !== sayi(g.k) ? ' / ' + sayi(g.k) : ''}</span><span class="phr"></span></div><div class="slist">${g.L.map(kart).join('')}</div>`).join('');
   return `
   <div class="row" style="justify-content:space-between"><div><span class="eyebrow">Danışman paneli</span><h1 style="font-size:30px;margin-top:4px">Öğrencilerim</h1></div>
     <div class="row"><button class="btn" data-a="toplu-ac">${S.topluAcik ? 'Toplu eklemeyi kapat' : 'Toplu ekle'}</button><button class="btn primary" data-a="ekle-ac">${S.ekleAcik ? 'Formu kapat' : '+ Öğrenci ekle'}</button></div></div>
@@ -811,13 +850,16 @@ function ogrencilerHTML() {
     </div>
     <div class="row"><button class="btn primary" data-a="ogrenci-ekle" ${S.mesgul ? 'disabled' : ''}>Ekle ve davet bağlantısı oluştur</button></div>
   </section>` : ''}
-  <div class="grid3">
-    <div class="stat"><span class="eyebrow">Aktif öğrenci</span><span class="v mono">${aktif.length}</span></div>
+  <div class="grid4">
+    <div class="stat"><span class="eyebrow">Aktif öğrenci</span><span class="v mono">${aktif.length}</span><span class="muted" style="font-size:12.5px">${Object.keys(PROGRAMS).map(k => `${esc(k === 'pdr' ? 'PDR' : 'Aile D.')} ${sayi(k)}`).join(' · ')}</span></div>
     <div class="stat"><span class="eyebrow">Onayınızı bekleyen</span><span class="v mono">${bek.length}</span></div>
-    <div class="stat"><span class="eyebrow">Planlanan savunma</span><span class="v mono">${aktif.filter(s => s.tez.sinavTarih).length}</span></div>
+    <button class="stat stat-btn ${dikkat ? 'uyar' : ''}" data-a="liste-filtre" data-k="${LA.filtre === 'risk' ? 'tumu' : 'risk'}"><span class="eyebrow">Dikkat gerektiren</span><span class="v mono">${dikkat}</span></button>
+    <div class="stat"><span class="eyebrow">Planlanan savunma</span><span class="v mono">${aktif.filter(s => s.tez.sinavTarih && s.adim.savunma !== 'tamam').length}</span></div>
   </div>
-  <div class="slist">${aktif.map(kart).join('') || '<section class="panel"><p class="muted" style="margin:0">Henüz öğrenci yok. "Öğrenci ekle" ile ilk öğrencinizi ekleyin.</p></section>'}</div>
-  ${arsiv.length ? `<div class="eyebrow">Arşiv</div><div class="slist">${arsiv.map(kart).join('')}</div>` : ''}
+  ${aktif.length ? `<div class="lbar"><div class="chips">${LISTE_FILTRE.map(([k, t]) => `<button class="chip ${LA.filtre === k ? 'on' : ''}" data-a="liste-filtre" data-k="${k}">${t}</button>`).join('')}</div>
+    <label class="row" style="gap:8px;flex-wrap:nowrap"><span class="muted" style="font-size:13px;white-space:nowrap">Sırala</span><select class="input" data-a="liste-sira" style="width:auto;padding:6px 10px;font-size:13.5px">${LISTE_SIRA.map(([k, t]) => `<option value="${k}" ${LA.sira === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>` : ''}
+  ${listeHTML || (aktif.length ? '<section class="panel"><p class="muted" style="margin:0">Bu filtreye uyan öğrenci yok.</p></section>' : '<section class="panel"><p class="muted" style="margin:0">Henüz öğrenci yok. "Öğrenci ekle" ile ilk öğrencinizi ekleyin.</p></section>')}
+  ${arsiv.length ? `<details class="arsiv"><summary class="eyebrow">Arşiv (${arsiv.length})</summary><div class="slist" style="margin-top:12px">${listeSirala(arsiv, 'ad').map(kart).join('')}</div></details>` : ''}
   ${aktif.some(s => s.davetBekliyor) || S.students.length ? `<p class="muted" style="font-size:13.5px;margin:0">Bir öğrenciye yeni davet ya da şifre yenileme bağlantısı göndermek için öğrenciyi açıp "Kişisel bilgiler"e gidin.</p>` : ''}`;
 }
 const KURALLAR = [
@@ -893,11 +935,178 @@ function onaylarHTML() {
   const L = bekleyenler();
   return `<div><span class="eyebrow">Danışman paneli</span><h1 style="font-size:30px;margin-top:4px">Onay bekleyenler</h1></div>
   <section class="panel">${L.length ? L.map((x, n) => `<div class="q"><div style="min-width:0"><div class="muted" style="font-size:13px;display:flex;gap:8px;align-items:center">${avatar(x.s, 22)}${esc(x.s.ad)}</div><div class="what">${esc(x.ad)}</div><div class="muted" style="font-size:13px">${esc(x.ek)}</div>
-      ${x.tip !== 'dosya' ? `<div class="row" style="margin-top:8px"><input class="input" id="qn-${n}" placeholder="Düzeltme notu (isteğe bağlı)" style="flex:1 1 220px"></div>` : ''}</div>
-      <div class="row">${x.tip === 'dosya' ? `<button class="btn small primary" data-a="ac" data-s="${x.s.id}" data-k="dosyalar">Aç ve yorum yaz</button>` :
+      ${x.tip !== 'dosya' && x.tip !== 'gorusme' ? `<div class="row" style="margin-top:8px"><input class="input" id="qn-${n}" placeholder="Düzeltme notu (isteğe bağlı)" style="flex:1 1 220px"></div>` : ''}</div>
+      <div class="row">${x.tip === 'dosya' ? `<button class="btn small primary" data-a="ac" data-s="${x.s.id}" data-k="dosyalar" data-y="${x.id}">Aç ve yorum yaz</button>` :
+        x.tip === 'gorusme' ? `<button class="btn small primary" data-a="ac" data-s="${x.s.id}" data-k="gorusmeler" data-g="${x.id}">Aç ve planla</button>` :
         x.tip === 'ders' ? `<button class="btn small primary" data-a="ders-islem" data-s="${x.s.id}" data-id="${x.id}" data-i="onayla">Onayla</button><button class="btn small" data-a="ders-islem" data-s="${x.s.id}" data-id="${x.id}" data-i="duzeltme" data-n="${n}">Düzeltme iste</button>` :
         `<button class="btn small primary" data-a="adim" data-s="${x.s.id}" data-k="${x.k}" data-i="onayla">Onayla</button><button class="btn small" data-a="adim" data-s="${x.s.id}" data-k="${x.k}" data-i="duzeltme" data-n="${n}">Düzeltme iste</button>`}</div></div>`).join('')
     : `<p class="muted">Bekleyen onay yok. Öğrencileriniz bir adımı gönderdiğinde burada görünür${S.mailVar ? ' ve e-posta alırsınız' : ''}.</p>`}</section>`;
+}
+
+/* ======================== GÖRÜŞMELER ======================== */
+const AY_ADLARI = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+// "2026-11-04T14:30" → "4 Kasım 2026, 14:30" (saat dilimine dokunmadan, girildiği gibi)
+const zamanFmt = v => { if (!v) return ''; const [d, t] = v.split('T'); const [y, a, g] = d.split('-'); return `${+g} ${AY_ADLARI[+a - 1]} ${y}${t ? ', ' + t.slice(0, 5) : ''}`; };
+const bugunIso = () => new Date(Date.now() + 3 * 36e5).toISOString().slice(0, 10);
+const simdiIso = () => new Date(Date.now() + 3 * 36e5).toISOString().slice(0, 16);
+const gunOnce = iso => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 864e5) : null;
+const gunOnceFmt = n => n == null ? '' : n <= 0 ? 'bugün' : n === 1 ? 'dün' : `${n} gün önce`;
+const satirlar = t => esc(t).replace(/\n/g, '<br>');
+const acikGorevler = s => (s.gorusmeler || []).filter(g => g.durum === 'yapildi' && g.gorev && !g.gorevTamam);
+const gecikmisGorev = g => g.gorevTarih && g.gorevTarih < bugunIso();
+
+function gorusmeFormHTML(mod, g = {}) {
+  // mod: plan (yeni plan) | planla (talebi planla) | not (görüşme notu; yeni ya da var olana)
+  const id = g.id || 'yeni';
+  const plan = mod === 'plan' || mod === 'planla', not = mod === 'not';
+  const deger = (k, d = '') => esc(g[k] || d);
+  return `<div class="gform" data-gform="${id}">
+    ${mod === 'plan' || (not && !g.id) ? `<div class="field"><label for="gf-konu-${id}">Konu</label><input class="input" id="gf-konu-${id}" value="${deger('konu')}" placeholder="ör. Yöntem bölümü taslağı"></div>` : ''}
+    <div class="grid2" style="gap:12px">
+      <div class="field"><label for="gf-tarih-${id}">${not ? 'Görüşme tarihi' : 'Tarih ve saat'}</label><input class="input" id="gf-tarih-${id}" type="datetime-local" value="${deger('tarih', not ? simdiIso() : '')}"></div>
+      ${plan ? `<div class="field"><label for="gf-bicim-${id}">Biçim</label><select class="input" id="gf-bicim-${id}"><option value="yuz" ${g.bicim !== 'cevrimici' ? 'selected' : ''}>Yüz yüze</option><option value="cevrimici" ${g.bicim === 'cevrimici' ? 'selected' : ''}>Çevrim içi</option></select></div>
+      <div class="field" style="grid-column:1/-1"><label for="gf-yer-${id}">Yer ya da toplantı bağlantısı</label><input class="input" id="gf-yer-${id}" value="${deger('yer')}" placeholder="ör. Eğitim Fakültesi, oda 214 · ya da Zoom/Meet bağlantısı"></div>` : ''}
+    </div>
+    ${not ? `<div class="field"><label for="gf-konusulanlar-${id}">Konuşulanlar</label><textarea class="input" id="gf-konusulanlar-${id}" rows="4">${deger('konusulanlar')}</textarea></div>
+    <div class="field"><label for="gf-kararlar-${id}">Kararlar</label><textarea class="input" id="gf-kararlar-${id}" rows="3">${deger('kararlar')}</textarea></div>
+    <div class="grid2" style="gap:12px">
+      <div class="field"><label for="gf-gorev-${id}">Sıradaki görev</label><input class="input" id="gf-gorev-${id}" value="${deger('gorev')}" placeholder="ör. Kuramsal temeli ölçek bölümüyle genişletmek"></div>
+      <div class="field"><label for="gf-gorevTarih-${id}">Görevin hedef tarihi</label><input class="input" id="gf-gorevTarih-${id}" type="date" value="${deger('gorevTarih')}"></div>
+    </div>
+    <div class="field"><label for="gf-ozel-${id}">Kendime not <span class="muted" style="font-weight:400">(öğrenci görmez)</span></label><textarea class="input" id="gf-ozel-${id}" rows="2">${deger('ozel')}</textarea></div>` : ''}
+    <div class="row"><button class="btn primary small" data-a="gorusme-kaydet" data-mod="${mod}" data-id="${g.id || ''}">${not ? 'Notu kaydet' : 'Planla ve bildir'}</button><button class="btn small" data-a="gform-kapat">Vazgeç</button>
+      <span class="muted" style="font-size:12.5px">${not ? 'Öğrenci kararları ve görevi görür; e-posta bildirimi gider.' : 'Öğrenciye tarih ve yer e-postayla gider.'}</span></div>
+  </div>`;
+}
+function gorusmeKart(s, g) {
+  const adv = isAdv(), F = S.gForm;
+  const formAcik = F && F.id === g.id;
+  const bicim = g.bicim === 'cevrimici' ? 'Çevrim içi' : 'Yüz yüze';
+  const link = /^https?:\/\//i.test(g.yer) ? `<a href="${esc(g.yer)}" target="_blank" rel="noopener">${esc(g.yer)}</a>` : esc(g.yer);
+  const ust = { talep: '<span class="pill wait">Talep</span>', planli: '<span class="pill go">Planlandı</span>', yapildi: '<span class="pill ok">Yapıldı</span>', iptal: '<span class="pill off">İptal</span>' }[g.durum];
+  const gecmisPlan = g.durum === 'planli' && g.tarih && g.tarih.slice(0, 10) < bugunIso();
+  let ic2 = '';
+  if (g.durum === 'talep') ic2 = `<div><b>${esc(g.konu)}</b>${g.tercih ? `<div class="muted" style="font-size:13.5px">Uygun zamanlar: ${esc(g.tercih)}</div>` : ''}<div class="muted" style="font-size:12.5px">Talep: ${esc(tarihFmt(g.olusturma))}</div></div>`;
+  else if (g.durum === 'planli') ic2 = `<div><b>${esc(zamanFmt(g.tarih))}</b> · ${bicim}${g.yer ? ` · ${link}` : ''}${g.konu ? `<div class="muted" style="font-size:13.5px">${esc(g.konu)}</div>` : ''}${gecmisPlan && adv ? '<div class="flagnote">• Görüşme tarihi geçti; notu girilmedi</div>' : ''}</div>`;
+  else if (g.durum === 'iptal') ic2 = `<div class="muted">${g.tarih ? esc(zamanFmt(g.tarih)) + ' · ' : ''}${esc(g.konu || 'Görüşme')}${g.iptalNotu ? ` — ${esc(g.iptalNotu)}` : ''}</div>`;
+  else ic2 = `<div style="display:grid;gap:8px"><div><b>${esc(zamanFmt(g.tarih))}</b>${g.konu ? ` · ${esc(g.konu)}` : ''}</div>
+      ${g.konusulanlar ? `<div><span class="eyebrow">Konuşulanlar</span><div class="gmetin">${satirlar(g.konusulanlar)}</div></div>` : ''}
+      ${g.kararlar ? `<div><span class="eyebrow">Kararlar</span><div class="gmetin">${satirlar(g.kararlar)}</div></div>` : ''}
+      ${g.gorev ? `<div class="gorev ${g.gorevTamam ? 'bitti' : gecikmisGorev(g) ? 'gec' : ''}"><label class="row" style="gap:8px;flex-wrap:nowrap;align-items:flex-start">${adv ? `<span class="kutu">${g.gorevTamam ? '✓' : ''}</span>` : `<input type="checkbox" data-a="gorev-tamam" data-id="${g.id}" ${g.gorevTamam ? 'checked' : ''}>`}<span><b>Sıradaki görev:</b> ${esc(g.gorev)}${g.gorevTarih ? `<span class="muted"> · hedef ${esc(zamanFmt(g.gorevTarih))}</span>` : ''}${g.gorevTamam ? ' <span class="pill ok">Tamamlandı</span>' : gecikmisGorev(g) ? ' <span class="pill risk">Hedef tarih geçti</span>' : ''}</span></label></div>` : ''}
+      ${adv && g.ozel ? `<div class="cm"><span class="eyebrow">Kendime not</span><br>${satirlar(g.ozel)}</div>` : ''}</div>`;
+  let dug = '';
+  const iptalAcik = adv && S.iptalAcik === g.id;
+  if (adv && !formAcik && !iptalAcik) {
+    if (g.durum === 'talep') dug = `<button class="btn small primary" data-a="gform" data-mod="planla" data-id="${g.id}">Planla</button><button class="btn small" data-a="iptal-ac" data-id="${g.id}">Planlanamadı</button>`;
+    else if (g.durum === 'planli') dug = `<button class="btn small primary" data-a="gform" data-mod="not" data-id="${g.id}">Not ekle</button><button class="btn small" data-a="gform" data-mod="planla" data-id="${g.id}">Değiştir</button><button class="btn small" data-a="iptal-ac" data-id="${g.id}">İptal</button>`;
+    else if (g.durum === 'yapildi') dug = `<button class="btn small" data-a="gform" data-mod="not" data-id="${g.id}">Düzenle</button><button class="btn small" data-a="gorusme-sil" data-id="${g.id}">Sil</button>`;
+    else dug = `<button class="btn small" data-a="gorusme-sil" data-id="${g.id}">Sil</button>`;
+  } else if (!adv && g.durum === 'talep') dug = `<button class="btn small" data-a="gorusme-geri" data-id="${g.id}">Geri çek</button>`;
+  return `<div class="gkart ${g.durum}"><div class="gust">${ust}${dug ? `<span class="row" style="gap:6px">${dug}</span>` : ''}</div>${ic2}
+    ${iptalAcik ? `<div class="row"><input class="input" id="gi-${g.id}" placeholder="Öğrenciye not (isteğe bağlı)" style="flex:1 1 220px;width:auto"><button class="btn small sun" data-a="gorusme-iptal" data-id="${g.id}">${g.durum === 'talep' ? 'Planlanamadı olarak bildir' : 'Görüşmeyi iptal et'}</button><button class="btn small" data-a="iptal-kapat">Vazgeç</button></div>` : ''}
+    ${formAcik ? gorusmeFormHTML(F.mod, g) : ''}</div>`;
+}
+function gorusmelerHTML(s) {
+  const adv = isAdv(), G = s.gorusmeler || [];
+  const talep = G.filter(g => g.durum === 'talep'), planli = G.filter(g => g.durum === 'planli').sort((a, b) => (a.tarih || '').localeCompare(b.tarih || ''));
+  const yapildi = G.filter(g => g.durum === 'yapildi'), iptal = G.filter(g => g.durum === 'iptal');
+  const gorev = acikGorevler(s);
+  const F = S.gForm;
+  const blok = (baslik, L, bos = '') => L.length || bos ? `<section class="panel"><h2>${baslik}</h2>${L.length ? `<div class="glist">${L.map(g => gorusmeKart(s, g)).join('')}</div>` : `<p class="muted" style="margin:0">${bos}</p>`}</section>` : '';
+  let ust = '';
+  if (adv) ust = `<section class="panel"><div class="row" style="justify-content:space-between"><h2>Görüşmeler</h2><span class="row" style="gap:8px">
+      <button class="btn small" data-a="gform" data-mod="plan">Görüşme planla</button><button class="btn small primary" data-a="gform" data-mod="not">Görüşme notu ekle</button></span></div>
+      <p class="muted" style="margin:0;font-size:13.5px">Notlar tez danışmanlığı geçmişi olarak birikir. Öğrenci konuşulanları, kararları ve görevi görür; "Kendime not" alanını yalnızca siz görürsünüz.</p>
+      ${F && !F.id ? gorusmeFormHTML(F.mod) : ''}</section>`;
+  else ust = `<section class="panel"><h2>Görüşme talep et</h2>
+      <p class="muted" style="margin:0;font-size:13.5px">Danışmanına konuyu ve sana uyan zamanları yaz; planladığında e-posta alırsın.</p>
+      <div class="field"><label for="gt-konu">Ne konuşmak istiyorsun?</label><textarea class="input" id="gt-konu" rows="3" placeholder="ör. Örneklem büyüklüğü ve ölçek seçimi hakkında görüş almak istiyorum."></textarea></div>
+      <div class="field"><label for="gt-tercih">Uygun zamanların (isteğe bağlı)</label><input class="input" id="gt-tercih" placeholder="ör. Salı öğleden sonra, Perşembe 10:00–12:00"></div>
+      <div class="row"><button class="btn primary" data-a="gorusme-talep" ${S.mesgul ? 'disabled' : ''}>Talep gönder</button></div></section>`;
+  const gorevBlok = gorev.length && !adv ? `<section class="panel"><h2>Açık görevlerin</h2><div class="checks">${gorev.map(g => `<label class="chk ${gecikmisGorev(g) ? 'surec' : 'bekliyor'}" style="cursor:pointer"><input type="checkbox" data-a="gorev-tamam" data-id="${g.id}" style="margin:3px 0 0"><div>${esc(g.gorev)}<div class="ref">${esc(zamanFmt(g.tarih))} tarihli görüşmeden${g.gorevTarih ? ` · hedef ${esc(zamanFmt(g.gorevTarih))}` : ''}</div></div><span class="val">${gecikmisGorev(g) ? 'gecikti' : ''}</span></label>`).join('')}</div></section>` : '';
+  return ust + gorevBlok
+    + blok(adv ? 'Yanıt bekleyen talepler' : 'Gönderdiğin talepler', talep)
+    + blok('Planlanan görüşmeler', planli)
+    + blok('Görüşme notları', yapildi, adv ? 'Henüz görüşme notu yok.' : 'Henüz görüşme notu yok. Danışmanınla görüştükten sonra kararlar ve görevler burada görünür.')
+    + (iptal.length ? `<details class="panel"><summary style="cursor:pointer"><b>İptal edilenler</b> <span class="muted">(${iptal.length})</span></summary><div class="glist" style="margin-top:10px">${iptal.map(g => gorusmeKart(s, g)).join('')}</div></details>` : '');
+}
+
+/* ======================== ZAMAN ÇİZELGESİ ======================== */
+const ZAMAN_TUR = { tamam: ['✓', 'ok'], uyari: ['!', 'uy'], adim: ['→', 'go'], ders: ['D', 'go'], bilgi: ['i', 'off'], dosya: ['v', 'ok'], yorum: ['“', 'go'], mesaj: ['✉', 'off'], gorusme: ['G', 'go'], hatirlatma: ['⏰', 'off'] };
+const ZAMAN_FILTRE = [['hepsi', 'Tümü'], ['tez', 'Tez süreci', ['tamam', 'uyari', 'adim', 'bilgi']], ['ders', 'Dersler', ['ders']], ['dosya', 'Dosyalar', ['dosya', 'yorum']], ['gorusme', 'Görüşmeler', ['gorusme']], ['mesaj', 'Yazışma', ['mesaj']], ['hatirlatma', 'Hatırlatmalar', ['hatirlatma']]];
+async function zamanYukle(sid) {
+  try { const d = await api(`/ogrenciler/${sid}/zaman`); S.zaman[sid] = d.liste; }
+  catch (e) { S.zaman[sid] = []; toast(e.message); }
+  if (S.section === 'gecmis' && cur()?.id === sid) render();
+}
+function gecmisHTML(s) {
+  const L0 = S.zaman[s.id];
+  if (!L0) { zamanYukle(s.id); return '<section class="panel"><h2>Zaman çizelgesi</h2><div class="loading" style="min-height:20vh">Yükleniyor…</div></section>'; }
+  const f = ZAMAN_FILTRE.find(x => x[0] === S.zamanFiltre) || ZAMAN_FILTRE[0];
+  const L = f[2] ? L0.filter(x => f[2].includes(x.tur)) : L0;
+  const kim = x => x.kim === 'danisman' ? 'Danışman' : x.kim === 'ogrenci' ? (isAdv() ? s.ad.split(' ')[0] : 'Sen') : x.kim === 'sistem' ? 'Panel' : '';
+  let ay = '', h = '';
+  for (const x of L) {
+    const d = new Date(x.t), a = `${AY_ADLARI[d.getMonth()]} ${d.getFullYear()}`;
+    if (a !== ay) { ay = a; h += `<div class="zay eyebrow">${a}</div>`; }
+    const [sim, cls] = ZAMAN_TUR[x.tur] || ['•', 'off'];
+    h += `<div class="zsat"><span class="zic ${cls}" aria-hidden="true">${sim}</span><div style="min-width:0"><div>${esc(x.baslik)}</div>${x.detay ? `<div class="muted zdet">${esc(x.detay)}</div>` : ''}</div><div class="zne muted">${esc(d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' }))} · ${esc(d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }))}${kim(x) ? `<br>${esc(kim(x))}` : ''}</div></div>`;
+  }
+  return `<section class="panel"><div class="row" style="justify-content:space-between"><h2>Zaman çizelgesi</h2><span class="muted" style="font-size:13px">${L0.length} kayıt</span></div>
+    <div class="chips">${ZAMAN_FILTRE.map(([k, t]) => `<button class="chip ${f[0] === k ? 'on' : ''}" data-a="zaman-filtre" data-k="${k}">${t}</button>`).join('')}</div>
+    <div class="zlist">${h || '<p class="muted" style="margin:0">Bu türde kayıt yok.</p>'}</div>
+    <p class="muted" style="margin:0;font-size:12.5px">Ders ve görüşme hareketleri bu özellik eklendikten sonra kaydedilmeye başladı; dosyalar, yorumlar ve yazışmalar baştan beri görünür.</p></section>`;
+}
+
+/* ======================== RİSK GÖSTERGELERİ ======================== */
+// lv 2: acil, lv 1: dikkat, lv 0: bilgi (sayılmaz)
+function riskler(s) {
+  if (s.arsiv) return [];
+  const R = [], k = K(), a = hesapla(s, 0);
+  if (s.davetBekliyor) R.push({ lv: 0, t: 'Davet bekliyor (henüz şifre belirlemedi)' });
+  else if (!s.profilTamam) R.push({ lv: 0, t: 'Kişisel bilgilerini henüz tamamlamadı' });
+  if (s.kayitTuru !== 'af') {
+    const kalan = k.azamiSure - s.donem + 1;
+    if (kalan <= 1) R.push({ lv: 2, t: kalan === 1 ? 'Azami sürenin son yarıyılı' : 'Azami süre aşıldı' });
+    else if (s.donem > k.normalSure) R.push({ lv: 1, t: `Normal süre aşıldı · azami süreye ${kalan} yarıyıl` });
+  }
+  if (!['tamam', 'onay'].includes(s.adim.konu)) {
+    if (s.donem > k.konuSonYariyil) R.push({ lv: 2, t: 'Tez konusu gecikti' });
+    else if (s.donem === k.konuSonYariyil) R.push({ lv: 1, t: 'Tez konusu bu yarıyıl belirlenmeli' });
+  }
+  if (s.kayitTuru !== 'af' && s.donem >= k.normalSure && (a.ders < k.dersMin || a.kredi < k.krediMin || a.sem < 1)) R.push({ lv: s.donem > k.normalSure ? 2 : 1, t: 'Ders dönemi tamamlanmadı' });
+  if (s.adim.savunma === 'tamam' && s.adim.ciltli !== 'tamam' && s.adimTarih.savunma) {
+    const g = gunOnce(s.adimTarih.savunma);
+    if (g >= k.ciltliGun - 5) R.push({ lv: 2, t: g > k.ciltliGun ? 'Ciltli teslim süresi doldu' : 'Ciltli teslim süresi doluyor' });
+  }
+  if (!s.davetBekliyor && s.adim.savunma !== 'tamam') {
+    const g = gunOnce(s.sonEtkinlik);
+    if (g == null) { if (s.profilTamam) R.push({ lv: 0, t: 'Panelde henüz etkinlik yok' }); }
+    else if (g >= 90) R.push({ lv: 2, t: `${g} gündür hareket yok` });
+    else if (g >= 45) R.push({ lv: 1, t: `${g} gündür hareket yok` });
+  }
+  const gec = acikGorevler(s).filter(gecikmisGorev).length;
+  if (gec) R.push({ lv: 1, t: gec === 1 ? 'Görev hedef tarihi geçti' : `${gec} görevin hedef tarihi geçti` });
+  return R;
+}
+const riskPuani = s => riskler(s).reduce((t, r) => t + (r.lv === 2 ? 3 : r.lv), 0);
+const LISTE_FILTRE = [['tumu', 'Tümü'], ['risk', 'Dikkat gerektiren'], ['onay', 'Onay bekleyen'], ['savunma', 'Savunması planlı'], ['davet', 'Davet / bilgi eksik']];
+const LISTE_SIRA = [['risk', 'Önce dikkat gerektirenler'], ['son', 'Önce en uzun süredir sessiz olanlar'], ['ilerleme-az', 'İlerleme (azdan çoğa)'], ['ilerleme-cok', 'İlerleme (çoktan aza)'], ['donem', 'Yarıyıl (büyükten küçüğe)'], ['ad', 'Ada göre']];
+function listeAyar() {
+  if (!S.liste) { let v = null; try { v = JSON.parse(localStorage.getItem('lp-liste') || 'null'); } catch (e) {} S.liste = { filtre: 'tumu', sira: 'risk', ...(v || {}) }; }
+  return S.liste;
+}
+function listeKaydet() { try { localStorage.setItem('lp-liste', JSON.stringify(S.liste)); } catch (e) {} }
+function listeSirala(L, sira) {
+  const by = {
+    risk: (a, b) => riskPuani(b) - riskPuani(a) || ilerleme(a).all - ilerleme(b).all,
+    son: (a, b) => (a.sonEtkinlik || '').localeCompare(b.sonEtkinlik || ''),
+    'ilerleme-az': (a, b) => ilerleme(a).all - ilerleme(b).all,
+    'ilerleme-cok': (a, b) => ilerleme(b).all - ilerleme(a).all,
+    donem: (a, b) => b.donem - a.donem,
+    ad: () => 0,
+  }[sira] || (() => 0);
+  return [...L].sort((a, b) => by(a, b) || a.ad.localeCompare(b.ad, 'tr'));
 }
 
 /* ======================== ETKİLEŞİM ======================== */
@@ -941,7 +1150,7 @@ document.addEventListener('click', async e => {
       case 'ekran': S.ekran = el.dataset.k; S.hata = ''; history.replaceState(null, '', '/'); break;
       case 'cikis': await api('/cikis', { method: 'POST', body: {} }); S.ben = null; S.students = []; S.ekran = 'giris'; S.modal = null; break;
       case 'toggle': if (innerWidth <= 760) S.mopen = !S.mopen; else S.collapsed = !S.collapsed; break;
-      case 'nav': if (el.dataset.k === 'hatirlatma') S.hatirlatma = null; S.section = el.dataset.k; S.mopen = false; S.notEdit = null; S.ekleKod = null; if (isAdv() && ['ogrenciler', 'onaylar'].includes(el.dataset.k)) S.viewing = null; scrollTo(0, 0); break;
+      case 'nav': if (el.dataset.k === 'hatirlatma') S.hatirlatma = null; S.section = el.dataset.k; S.mopen = false; S.notEdit = null; S.ekleKod = null; S.gForm = null; S.iptalAcik = null; S.yeniDosya = null; S.yorumAcik = null; if (isAdv() && ['ogrenciler', 'onaylar'].includes(el.dataset.k)) S.viewing = null; scrollTo(0, 0); break;
       case 'yonetmelik-yukle': {
         const f = document.getElementById('yy-dosya').files[0], ad = val('yy-ad').trim(), donem = val('yy-donem');
         if (!f) { toast('PDF dosyası seçin'); return; }
@@ -967,7 +1176,45 @@ document.addEventListener('click', async e => {
         toast('Ayarlar kaydedildi', 'Tüm öğrencilerin hesapları ve formları güncellendi.');
         break; }
       case 'hatirlatma-gonder': { const r = await api('/hatirlatmalar/gonder', { method: 'POST', body: {} }); S.hatirlatma = null; toast(`${r.gonderilen} hatırlatma gönderildi`); break; }
-      case 'ac': S.viewing = el.dataset.s; S.section = el.dataset.k || 'genel'; scrollTo(0, 0); break;
+      case 'ac': S.viewing = el.dataset.s; S.section = el.dataset.k || 'genel'; S.yorumAcik = el.dataset.y ? +el.dataset.y : null; S.gForm = el.dataset.g ? { mod: 'planla', id: +el.dataset.g } : null; S.iptalAcik = null; S.yeniDosya = null; scrollTo(0, 0); break;
+      case 'liste-filtre': listeAyar().filtre = el.dataset.k; listeKaydet(); break;
+      case 'zaman-filtre': S.zamanFiltre = el.dataset.k; break;
+      case 'yorum-ac': S.yorumAcik = +el.dataset.id; break;
+      case 'dosya-vazgec': S.yeniDosya = null; break;
+      case 'dosya-yukle': {
+        const f = S.yeniDosya; if (!f) return;
+        const fd = new FormData(); fd.append('dosya', f); fd.append('aciklama', val('f-aciklama').trim());
+        S.mesgul = true; render();
+        try { const r = await api(`/ogrenciler/${s.id}/dosyalar`, { method: 'POST', body: fd }); S.yeniDosya = null; await yenile(s.id); toast(`v${r.v} yüklendi`, (isAdv() ? '' : mailNot() + ' ') + 'Önceki sürümler saklanıyor.'); }
+        finally { S.mesgul = false; }
+        break; }
+      case 'gform': S.gForm = { mod: el.dataset.mod, id: el.dataset.id ? +el.dataset.id : null }; S.iptalAcik = null; break;
+      case 'gform-kapat': S.gForm = null; break;
+      case 'iptal-ac': S.iptalAcik = +el.dataset.id; S.gForm = null; break;
+      case 'iptal-kapat': S.iptalAcik = null; break;
+      case 'gorusme-talep': {
+        const b = { konu: val('gt-konu').trim(), tercih: val('gt-tercih').trim() };
+        if (!b.konu) { toast('Konuyu yaz', 'Ne konuşmak istediğini kısaca belirt.'); return; }
+        await api(`/ogrenciler/${s.id}/gorusmeler`, { method: 'POST', body: b }); await yenile(s.id); toast('Görüşme talebin gönderildi', mailNot());
+        break; }
+      case 'gorusme-kaydet': {
+        const mod = el.dataset.mod, gid = el.dataset.id, x = gid || 'yeni', f = k => val(`gf-${k}-${x}`).trim();
+        const b = { konu: f('konu'), tarih: f('tarih'), bicim: f('bicim'), yer: f('yer'), konusulanlar: f('konusulanlar'), kararlar: f('kararlar'), gorev: f('gorev'), gorevTarih: f('gorevTarih'), ozel: f('ozel') };
+        if (mod !== 'not' && !b.tarih) { toast('Tarih ve saati seçin'); return; }
+        if (mod === 'not' && !b.konusulanlar && !b.kararlar && !b.gorev) { toast('Görüşme notunu yazın', 'Konuşulanlar, kararlar ya da görevden en az biri gerekli.'); return; }
+        if (gid) await api(`/gorusmeler/${gid}`, { method: 'PUT', body: { ...b, islem: mod === 'not' ? 'not' : 'planla' } });
+        else await api(`/ogrenciler/${s.id}/gorusmeler`, { method: 'POST', body: { ...b, durum: mod === 'not' ? 'yapildi' : 'planli' } });
+        S.gForm = null; await yenile(s.id); toast(mod === 'not' ? 'Görüşme notu kaydedildi' : 'Görüşme planlandı', mailNot());
+        break; }
+      case 'gorusme-iptal': {
+        await api(`/gorusmeler/${el.dataset.id}`, { method: 'PUT', body: { islem: 'iptal', not: val('gi-' + el.dataset.id).trim() } });
+        S.iptalAcik = null; await yenile(s.id); toast('Öğrenciye bildirildi', mailNot());
+        break; }
+      case 'gorusme-geri': await api(`/gorusmeler/${el.dataset.id}`, { method: 'PUT', body: { islem: 'geri-cek' } }); await yenile(s.id); toast('Talep geri çekildi'); break;
+      case 'gorusme-sil': {
+        if (el.dataset.onay !== '1') { el.dataset.onay = '1'; el.textContent = 'Emin misiniz?'; el.classList.add('sun'); setTimeout(() => { if (el.isConnected) { el.dataset.onay = ''; el.textContent = 'Sil'; el.classList.remove('sun'); } }, 3000); return; }
+        await api(`/gorusmeler/${el.dataset.id}`, { method: 'DELETE' }); await yenile(s.id); toast('Görüşme kaydı silindi');
+        break; }
       case 'ekle-ac': S.ekleAcik = !S.ekleAcik; S.topluAcik = false; break;
       case 'foto-sil': await api(`/ogrenciler/${s.id}/foto`, { method: 'DELETE' }); await yenile(s.id); toast('Profil fotoğrafı kaldırıldı'); break;
       case 'sil-ac': S.silOnay = s.id; break;
@@ -1071,8 +1318,13 @@ document.addEventListener('click', async e => {
           { gonder: ['Danışman onayına gönderildi', 'Çubuk bu adım için yarım doldu. Onaylanınca tamamlanacak.'], 'geri-cek': ['Adım geri çekildi'], onayla: ['Onaylandı', mailNot()], isaretle: ['Tamamlandı olarak işaretlendi', mailNot()], duzeltme: ['Düzeltme istendi', mailNot()], sifirla: ['Adım geri alındı'] }[i]);
         break; }
       case 'yorum': {
-        const v = val('yorum-' + el.dataset.id).trim(); if (!v) return;
-        await api(`/dosyalar/${el.dataset.id}/yorum`, { method: 'PUT', body: { yorum: v } }); await yenile(s.id); toast('Yorum gönderildi', mailNot());
+        const id = el.dataset.id, v = val('yorum-' + id).trim(), ek = document.getElementById('yek-' + id)?.files[0];
+        if (!v && !ek) { toast('Yorum boş', 'Bir şey yazın ya da dosya ekleyin.'); return; }
+        if (ek && ek.size > 25 * 1024 * 1024) { toast('Ek dosya 25 MB\'tan büyük'); return; }
+        const fd = new FormData(); fd.append('metin', v); if (ek) fd.append('ek', ek);
+        S.mesgul = true; render();
+        try { await api(`/dosyalar/${id}/yorumlar`, { method: 'POST', body: fd }); S.yorumAcik = null; await yenile(s.id); toast(isAdv() ? 'Yorum gönderildi' : 'Yanıtın gönderildi', mailNot()); }
+        finally { S.mesgul = false; }
         break; }
       case 'mesaj': {
         const v = val('msg-in').trim(); if (!v) return;
@@ -1097,14 +1349,20 @@ document.addEventListener('change', async e => {
     } catch (err) { toast(err.message); }
     e.target.value = ''; render(); return;
   }
-  if (e.target.dataset.a !== 'yukle' || !e.target.files[0]) return;
-  const s = cur(), f = e.target.files[0];
+  const A = e.target.dataset.a;
+  if (A === 'liste-sira') { listeAyar().sira = e.target.value; listeKaydet(); render(); return; }
+  if (A === 'yek') { const f = e.target.files[0], el = document.getElementById('yek-ad-' + e.target.dataset.id); if (el) el.textContent = f ? f.name : ''; return; }
+  if (A === 'gorev-tamam') {
+    const s = cur();
+    try { await api(`/gorusmeler/${e.target.dataset.id}`, { method: 'PUT', body: { islem: 'gorev', tamam: e.target.checked } }); await yenile(s.id); toast(e.target.checked ? 'Görev tamamlandı' : 'Görev yeniden açıldı', e.target.checked ? mailNot() : ''); }
+    catch (err) { toast(err.message); }
+    render(); return;
+  }
+  if (A !== 'yukle' || !e.target.files[0]) return;
+  const f = e.target.files[0];
   if (f.size > 25 * 1024 * 1024) { toast('Dosya 25 MB\'tan büyük', 'Daha küçük bir dosya seç ya da PDF olarak kaydet.'); e.target.value = ''; return; }
-  const fd = new FormData(); fd.append('dosya', f);
-  S.mesgul = true; toast('Yükleniyor…', f.name);
-  try { const r = await api(`/ogrenciler/${s.id}/dosyalar`, { method: 'POST', body: fd }); await yenile(s.id); toast(`v${r.v} yüklendi`, (isAdv() ? '' : mailNot() + ' ') + 'Önceki sürümler saklanıyor.'); }
-  catch (err) { toast(err.message); }
-  finally { S.mesgul = false; render(); }
+  S.yeniDosya = f; render();
+  document.getElementById('f-aciklama')?.focus();
 });
 document.addEventListener('input', e => {
   if (e.target.id === 'g-tc' || e.target.id === 'g-adres') {

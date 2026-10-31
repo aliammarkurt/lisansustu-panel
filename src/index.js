@@ -3,7 +3,7 @@
 
 // Lisansüstü Panel — © 2026 Dr. Öğr. Üyesi Ali Ammar Kurt. Tüm hakları saklıdır.
 import { PROGRAMS, ADIM, SONUCLU, KAYIT_DONEMLERI, bosTez, TELIF, ayarBirlestir, ayarUygula, AYAR_VARSAYILAN } from '../public/shared.js';
-import { hatirlatmalar, haftalikOzet } from './hatirlatma.js';
+import { hatirlatmalar, haftalikOzet, KONU_ADI, SON_ETKINLIK_SQL } from './hatirlatma.js';
 
 const SESSION_DAYS = 30;
 const INVITE_DAYS = 14;
@@ -27,6 +27,16 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS idx_courses_s ON courses(student_id)`,
   `CREATE INDEX IF NOT EXISTS idx_files_s ON files(student_id)`,
   `CREATE INDEX IF NOT EXISTS idx_msg_s ON messages(student_id)`,
+  // Görüşmeler: öğrenci talebi → danışman planı → görüşme notu (kararlar, sonraki görev)
+  `CREATE TABLE IF NOT EXISTS meetings (id INTEGER PRIMARY KEY AUTOINCREMENT, student_id TEXT NOT NULL, durum TEXT NOT NULL, talep_eden TEXT NOT NULL, konu TEXT, tercih TEXT, tarih TEXT, bicim TEXT, yer TEXT, konusulanlar TEXT, kararlar TEXT, ozel TEXT, gorev TEXT, gorev_tarih TEXT, gorev_tamam INTEGER NOT NULL DEFAULT 0, iptal_notu TEXT, created_at TEXT NOT NULL, updated_at TEXT)`,
+  `CREATE INDEX IF NOT EXISTS idx_meet_s ON meetings(student_id)`,
+  // Tez sürümlerine iki yönlü yorumlar (isteğe bağlı ek dosyayla)
+  `CREATE TABLE IF NOT EXISTS file_comments (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id INTEGER NOT NULL, student_id TEXT NOT NULL, kimden TEXT NOT NULL, metin TEXT NOT NULL, ek_r2_key TEXT, ek_ad TEXT, ek_boyut INTEGER, ek_tur TEXT, created_at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_fc_f ON file_comments(file_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_fc_s ON file_comments(student_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_ev_s ON events(student_id)`,
+  // Eski tek yorumları yorum dizisine taşı (bir kez; dizisi olan sürüme dokunmaz)
+  `INSERT INTO file_comments (file_id, student_id, kimden, metin, created_at) SELECT f.id, f.student_id, 'danisman', f.yorum, COALESCE(f.yorum_at, f.created_at) FROM files f WHERE f.yorum IS NOT NULL AND f.yorum != '' AND NOT EXISTS (SELECT 1 FROM file_comments c WHERE c.file_id = f.id)`,
   // Dersler artık not girilince doğrudan tamamlanıyor; eski 'onay' kayıtlarını dönüştür
   `UPDATE courses SET durum = 'tamam' WHERE durum = 'onay'`,
 ];
@@ -35,7 +45,7 @@ async function ensureSchema(env) {
   if (schemaReady) return;
   await env.DB.batch(SCHEMA.map(s => env.DB.prepare(s)));
   // Sonradan eklenen sütunlar (varsa hata verir, yok sayılır)
-  for (const sql of [`ALTER TABLE students ADD COLUMN kayit_turu TEXT NOT NULL DEFAULT 'normal'`, `ALTER TABLE students ADD COLUMN profil_tamam INTEGER NOT NULL DEFAULT 1`, `ALTER TABLE students ADD COLUMN foto_v INTEGER NOT NULL DEFAULT 0`]) {
+  for (const sql of [`ALTER TABLE students ADD COLUMN kayit_turu TEXT NOT NULL DEFAULT 'normal'`, `ALTER TABLE students ADD COLUMN profil_tamam INTEGER NOT NULL DEFAULT 1`, `ALTER TABLE students ADD COLUMN foto_v INTEGER NOT NULL DEFAULT 0`, `ALTER TABLE files ADD COLUMN aciklama TEXT`]) {
     try { await env.DB.prepare(sql).run(); } catch {}
   }
   schemaReady = true;
@@ -136,23 +146,37 @@ async function makeToken(env, userId, type) {
 
 /* ---------------- Öğrenci verisi ---------------- */
 const parse = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d; } };
-async function loadStudent(env, id, ayar) {
+const gorusmeJson = (r, adv) => ({
+  id: r.id, durum: r.durum, talepEden: r.talep_eden, konu: r.konu || '', tercih: r.tercih || '', tarih: r.tarih || '', bicim: r.bicim || '', yer: r.yer || '',
+  konusulanlar: r.konusulanlar || '', kararlar: r.kararlar || '', gorev: r.gorev || '', gorevTarih: r.gorev_tarih || '', gorevTamam: !!r.gorev_tamam,
+  iptalNotu: r.iptal_notu || '', olusturma: r.created_at, guncelleme: r.updated_at || r.created_at, ...(adv ? { ozel: r.ozel || '' } : {}),
+});
+async function loadStudent(env, id, ayar, adv = false) {
   const s = await env.DB.prepare(`SELECT u.id, u.email, u.ad, u.pass_hash, st.* FROM users u JOIN students st ON st.user_id = u.id WHERE u.id = ?`).bind(id).first();
   if (!s) return null;
-  const [c, f, m] = await env.DB.batch([
+  const [c, f, m, y, g, son] = await env.DB.batch([
     env.DB.prepare(`SELECT * FROM courses WHERE student_id = ? ORDER BY donem, id`).bind(id),
-    env.DB.prepare(`SELECT id, v, ad, boyut, tur, created_at, yorum, yorum_at FROM files WHERE student_id = ? ORDER BY v DESC`).bind(id),
+    env.DB.prepare(`SELECT id, v, ad, boyut, tur, created_at, aciklama FROM files WHERE student_id = ? ORDER BY v DESC`).bind(id),
     env.DB.prepare(`SELECT kimden, metin, created_at FROM messages WHERE student_id = ? ORDER BY id`).bind(id),
+    env.DB.prepare(`SELECT id, file_id, kimden, metin, ek_ad, ek_boyut, created_at FROM file_comments WHERE student_id = ? ORDER BY id`).bind(id),
+    env.DB.prepare(`SELECT * FROM meetings WHERE student_id = ? ORDER BY COALESCE(tarih, created_at) DESC, id DESC`).bind(id),
+    env.DB.prepare(SON_ETKINLIK_SQL).bind(id),
   ]);
+  const yorumlar = {};
+  for (const r of y.results) (yorumlar[r.file_id] ||= []).push({ id: r.id, kimden: r.kimden, m: r.metin, t: r.created_at, ek: r.ek_ad ? { ad: r.ek_ad, boyut: r.ek_boyut } : null });
+  const adimTarih = parse(s.adim_tarih, {});
+  const sonEtkinlik = [son.results[0]?.son, ...Object.values(adimTarih)].filter(Boolean).sort().pop() || null;
   return {
     id: s.id, ad: s.ad, eposta: s.email, no: s.no || '', program: s.program, kayit: s.kayit,
     donem: s.donem, danismanDonem: s.danisman_donem, statu: s.statu || '', arsiv: !!s.arsiv, kayitTuru: s.kayit_turu || 'normal', profilTamam: s.profil_tamam !== 0, foto: s.foto_v || 0,
     davetBekliyor: !s.pass_hash, kvkk: s.kvkk_at,
     tez: (() => { const t = { ...bosTez(), ...parse(s.tez, {}) }; if (ayar) t.juri = [{ u: ayar.danisman.unvan, a: ayar.danisman.adSoyad, k: ayar.danisman.kurum }, ...t.juri.slice(1)]; return t; })(),
-    adim: parse(s.adim, {}), adimTarih: parse(s.adim_tarih, {}),
+    adim: parse(s.adim, {}), adimTarih,
     dersler: c.results.map(r => ({ id: r.id, kod: r.kod, donem: r.donem, durum: r.durum, not: r.notu, final: r.final, sonuc: r.sonuc, kaynak: r.kaynak })),
-    dosyalar: f.results.map(r => ({ id: r.id, v: r.v, ad: r.ad, boyut: r.boyut, tarih: r.created_at, yorum: r.yorum || '' })),
+    dosyalar: f.results.map(r => ({ id: r.id, v: r.v, ad: r.ad, boyut: r.boyut, tarih: r.created_at, aciklama: r.aciklama || '', yorumlar: yorumlar[r.id] || [] })),
     mesajlar: m.results.map(r => ({ kimden: r.kimden, m: r.metin, t: r.created_at })),
+    gorusmeler: g.results.map(r => gorusmeJson(r, adv)),
+    sonEtkinlik,
   };
 }
 function canSee(user, sid) { return user.role === 'danisman' || user.id === sid; }
@@ -363,7 +387,7 @@ async function route(req, env, ctx, url) {
       ? (await env.DB.prepare(`SELECT user_id FROM students ORDER BY arsiv, user_id`).all()).results.map(r => r.user_id)
       : [user.id];
     const list = [];
-    for (const id of ids) { const s = await loadStudent(env, id, ayar); if (s) list.push(s); }
+    for (const id of ids) { const s = await loadStudent(env, id, ayar, isAdv); if (s) list.push(s); }
     return json({ ogrenciler: list });
   }
   if (p === '/api/ogrenciler' && M === 'POST') {
@@ -415,16 +439,16 @@ async function route(req, env, ctx, url) {
 
   if ((m = p.match(/^\/api\/ogrenciler\/([\w-]+)$/))) {
     const sid = m[1];
-    if (M === 'GET') { await studentOr404(env, user, sid); return json({ ogrenci: await loadStudent(env, sid, ayar) }); }
+    if (M === 'GET') { await studentOr404(env, user, sid); return json({ ogrenci: await loadStudent(env, sid, ayar, isAdv) }); }
     if (M === 'DELETE') {
       if (!isAdv) fail(403, 'Öğrenciyi yalnızca danışman silebilir.');
       const st = await studentOr404(env, user, sid);
       // Önce dosya deposundaki tez dosyaları
-      const keys = (await env.DB.prepare(`SELECT r2_key FROM files WHERE student_id = ?`).bind(sid).all()).results.map(r => r.r2_key);
+      const keys = (await env.DB.prepare(`SELECT r2_key FROM files WHERE student_id = ?1 UNION ALL SELECT ek_r2_key FROM file_comments WHERE student_id = ?1 AND ek_r2_key IS NOT NULL`).bind(sid).all()).results.map(r => r.r2_key);
       keys.push(`foto/${sid}.jpg`);
       if (env.FILES) { for (let i = 0; i < keys.length; i += 500) await env.FILES.delete(keys.slice(i, i + 500)); }
       await env.DB.batch([
-        'courses', 'files', 'messages', 'reminders',
+        'courses', 'files', 'file_comments', 'messages', 'meetings', 'reminders',
       ].map(t => env.DB.prepare(`DELETE FROM ${t} WHERE student_id = ?`).bind(sid)).concat([
         env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(sid),
         env.DB.prepare(`DELETE FROM tokens WHERE user_id = ?`).bind(sid),
@@ -473,6 +497,7 @@ async function route(req, env, ctx, url) {
           .bind(str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60), kayitTuru(b.kayitTuru), sid),
       ]);
     }
+    await log(env, sid, user.id, 'profil', '');
     return json({ ok: true });
   }
 
@@ -489,6 +514,12 @@ async function route(req, env, ctx, url) {
       juri: [0, 1, 2, 3, 4].map(i => i === 0 ? eski.juri[0] : { u: str(b.juri?.[i]?.u, 40), a: str(b.juri?.[i]?.a, 120), k: str(b.juri?.[i]?.k, 160) }),
     };
     await env.DB.prepare(`UPDATE students SET tez = ? WHERE user_id = ?`).bind(JSON.stringify(t), sid).run();
+    const degisen = [];
+    if (t.baslikTr !== eski.baslikTr) degisen.push('başlık');
+    if (t.sinavTarih !== eski.sinavTarih || t.sinavSaat !== eski.sinavSaat || t.sinavYer !== eski.sinavYer) degisen.push('sınav bilgisi');
+    if (JSON.stringify(t.juri) !== JSON.stringify(eski.juri)) degisen.push('jüri');
+    if (JSON.stringify(t.komisyon) !== JSON.stringify(eski.komisyon) || t.oneriTarih !== eski.oneriTarih) degisen.push('öneri bilgisi');
+    if (degisen.length) await log(env, sid, user.id, 'tez-bilgi', degisen.join(', '));
     return json({ ok: true });
   }
 
@@ -533,6 +564,7 @@ async function route(req, env, ctx, url) {
     const durum = sonucVar ? 'tamam' : 'aliyor';
     await env.DB.prepare(`INSERT INTO courses (student_id, kod, donem, durum, notu, final, sonuc, kaynak, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`)
       .bind(sid, c.kod, donem, durum, notu, final, sonuc, kaynak, now()).run();
+    await log(env, sid, user.id, sonucVar ? 'ders-sonuc' : 'ders-ekle', c.kod + (notu !== null ? '|' + notu : ''));
     if (!isAdv && sonucVar) notify(ctx, env, advisorEmail(env), `${s.ad}: ders sonucu girildi`, `${s.ad}, ${c.kod} ${c.ad} dersinin sonucunu girdi${notu !== null ? ` (not: ${notu}${final !== null ? ', final: ' + final : ''})` : ' (başarılı)'}.`);
     return json({ ok: true });
   }
@@ -543,6 +575,7 @@ async function route(req, env, ctx, url) {
     const c = PROGRAMS[s.program].katalog.find(x => x.kod === r.kod) || { kod: r.kod, ad: r.kod, tur: 'secmeli' };
     if (M === 'DELETE') {
       await env.DB.prepare(`DELETE FROM courses WHERE id = ?`).bind(cid).run();
+      await log(env, sid, user.id, 'ders-sil', c.kod);
       return json({ ok: true });
     }
     if (M === 'PUT') {
@@ -561,6 +594,7 @@ async function route(req, env, ctx, url) {
         } else if (b.islem === 'geri') {
           await env.DB.prepare(`UPDATE courses SET durum = CASE WHEN notu IS NULL AND sonuc IS NULL THEN 'aliyor' ELSE 'onay' END, updated_at=? WHERE id=?`).bind(now(), cid).run();
         } else fail(400, 'Bilinmeyen işlem.');
+        await log(env, sid, user.id, 'ders-' + b.islem, c.kod);
         return json({ ok: true });
       }
       // Sonuç girme / düzeltme
@@ -571,6 +605,7 @@ async function route(req, env, ctx, url) {
       const sonucVar = notu !== null || sonuc;
       const durum = sonucVar ? 'tamam' : 'aliyor';
       await env.DB.prepare(`UPDATE courses SET notu=?, final=?, sonuc=?, donem=?, kaynak=?, durum=?, updated_at=? WHERE id=?`).bind(notu, final, sonuc, donem, kaynak, durum, now(), cid).run();
+      if (sonucVar) await log(env, sid, user.id, 'ders-sonuc', c.kod + (notu !== null ? '|' + notu : ''));
       if (!isAdv && sonucVar) notify(ctx, env, advisorEmail(env), `${s.ad}: ders sonucu girildi`, `${s.ad}, ${c.kod} ${c.ad} dersinin sonucunu girdi${notu !== null ? ` (not: ${notu}${final !== null ? ', final: ' + final : ''})` : ' (başarılı)'}.`);
       return json({ ok: true });
     }
@@ -632,39 +667,222 @@ async function route(req, env, ctx, url) {
     const form = await req.formData();
     const f = form.get('dosya');
     if (!f || typeof f === 'string') fail(400, 'Dosya seçilmedi.');
-    if (f.size > MAX_FILE) fail(413, 'Dosya 25 MB\'tan büyük olamaz.');
-    const ext = (f.name.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
-    if (!['doc', 'docx', 'pdf', 'odt', 'rtf'].includes(ext)) fail(400, 'Yalnızca Word, PDF, ODT veya RTF yükleyebilirsin.');
+    const ext = dosyaKontrol(f);
+    const aciklama = str(form.get('aciklama'), 2000);
     const last = await env.DB.prepare(`SELECT MAX(v) v FROM files WHERE student_id = ?`).bind(sid).first();
     const v = (last?.v || 0) + 1;
-    const ad = f.name.replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 150);
+    const ad = dosyaAdi(f.name);
     const key = `ogrenci/${sid}/v${v}-${uid()}.${ext}`;
     await env.FILES.put(key, f.stream(), { httpMetadata: { contentType: f.type || 'application/octet-stream' } });
-    await env.DB.prepare(`INSERT INTO files (student_id, v, ad, boyut, tur, r2_key, created_at) VALUES (?,?,?,?,?,?,?)`).bind(sid, v, ad, f.size, f.type || '', key, now()).run();
-    if (!isAdv) notify(ctx, env, advisorEmail(env), `${s.ad}: yeni tez sürümü (v${v})`, `${s.ad} panele yeni bir tez dosyası yükledi: ${ad} (v${v}).`);
+    await env.DB.prepare(`INSERT INTO files (student_id, v, ad, boyut, tur, r2_key, created_at, aciklama) VALUES (?,?,?,?,?,?,?,?)`).bind(sid, v, ad, f.size, f.type || '', key, now(), aciklama || null).run();
+    if (!isAdv) notify(ctx, env, advisorEmail(env), `${s.ad}: yeni tez sürümü (v${v})`, `${s.ad} panele yeni bir tez dosyası yükledi: ${ad} (v${v}).${aciklama ? `\n\nBu sürümde neler değişti:\n${aciklama}` : ''}`);
     return json({ ok: true, v });
   }
   if ((m = p.match(/^\/api\/dosyalar\/(\d+)$/)) && M === 'GET') {
     const f = await env.DB.prepare(`SELECT * FROM files WHERE id = ?`).bind(+m[1]).first();
     if (!f || !canSee(user, f.student_id)) fail(404, 'Dosya bulunamadı.');
-    const o = await env.FILES.get(f.r2_key);
-    if (!o) fail(404, 'Dosya depoda bulunamadı.');
-    return new Response(o.body, { headers: {
-      'Content-Type': f.tur || 'application/octet-stream',
-      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(f.ad)}`,
-      'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
-    } });
+    return indir(env, f.r2_key, f.ad, f.tur);
   }
-  if ((m = p.match(/^\/api\/dosyalar\/(\d+)\/yorum$/)) && M === 'PUT') {
-    if (!isAdv) fail(403, 'Yorumu yalnızca danışman yazabilir.');
+  // Sürüme yorum: danışman ve öğrenci karşılıklı yazar; isteğe bağlı ek dosya (ör. yorumlu Word)
+  if ((m = p.match(/^\/api\/dosyalar\/(\d+)\/yorumlar$/)) && M === 'POST') {
     const f = await env.DB.prepare(`SELECT f.*, u.email, u.ad sad FROM files f JOIN users u ON u.id = f.student_id WHERE f.id = ?`).bind(+m[1]).first();
-    if (!f) fail(404, 'Dosya bulunamadı.');
-    const b = await body(req); const yorum = str(b.yorum, 4000);
-    if (!yorum) fail(400, 'Yorum boş olamaz.');
-    await env.DB.prepare(`UPDATE files SET yorum = ?, yorum_at = ? WHERE id = ?`).bind(yorum, now(), f.id).run();
-    notify(ctx, env, f.email, `Tez sürümüne yorum (v${f.v})`, `Merhaba ${f.sad},\n\nDanışmanın v${f.v} sürümüne yorum yazdı:\n\n${yorum}`);
+    if (!f || !canSee(user, f.student_id)) fail(404, 'Dosya bulunamadı.');
+    const form = await req.formData();
+    const metin = str(form.get('metin'), 4000), ek = form.get('ek');
+    const ekVar = ek && typeof ek !== 'string' && ek.size > 0;
+    if (!metin && !ekVar) fail(400, 'Yorum boş olamaz.');
+    let ekKey = null, ekAd = null, ekBoyut = null, ekTur = null;
+    if (ekVar) {
+      if (!env.FILES) fail(503, 'Dosya depolama bağlı değil.');
+      const ext = dosyaKontrol(ek);
+      ekKey = `ogrenci/${f.student_id}/yorum-v${f.v}-${uid()}.${ext}`; ekAd = dosyaAdi(ek.name); ekBoyut = ek.size; ekTur = ek.type || '';
+      await env.FILES.put(ekKey, ek.stream(), { httpMetadata: { contentType: ekTur || 'application/octet-stream' } });
+    }
+    const kimden = isAdv ? 'danisman' : 'ogrenci', yaz = metin || '(Ek dosya)';
+    const st = [env.DB.prepare(`INSERT INTO file_comments (file_id, student_id, kimden, metin, ek_r2_key, ek_ad, ek_boyut, ek_tur, created_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(f.id, f.student_id, kimden, yaz, ekKey, ekAd, ekBoyut, ekTur, now())];
+    // files.yorum: danışmanın son yorumu (haftalık özetteki "yorum bekleyen" hesabı için)
+    if (isAdv) st.push(env.DB.prepare(`UPDATE files SET yorum = ?, yorum_at = ? WHERE id = ?`).bind(yaz, now(), f.id));
+    await env.DB.batch(st);
+    const ekNot = ekAd ? `\n\nEk dosya: ${ekAd}` : '';
+    if (isAdv) notify(ctx, env, f.email, `Tez sürümüne yorum (v${f.v})`, `Merhaba ${f.sad},\n\nDanışmanın v${f.v} sürümüne yorum yazdı:\n\n${yaz}${ekNot}`);
+    else notify(ctx, env, advisorEmail(env), `${f.sad}: v${f.v} sürümüne yanıt`, `${f.sad}, v${f.v} sürümündeki yorumlara yanıt yazdı:\n\n${yaz}${ekNot}`);
     return json({ ok: true });
+  }
+  if ((m = p.match(/^\/api\/yorum-ek\/(\d+)$/)) && M === 'GET') {
+    const c = await env.DB.prepare(`SELECT * FROM file_comments WHERE id = ?`).bind(+m[1]).first();
+    if (!c || !c.ek_r2_key || !canSee(user, c.student_id)) fail(404, 'Dosya bulunamadı.');
+    return indir(env, c.ek_r2_key, c.ek_ad, c.ek_tur);
+  }
+
+  /* ---- Görüşmeler ---- */
+  if ((m = p.match(/^\/api\/ogrenciler\/([\w-]+)\/gorusmeler$/)) && M === 'POST') {
+    const sid = m[1]; const s = await studentOr404(env, user, sid);
+    const b = await body(req);
+    if (!isAdv) {
+      const konu = str(b.konu, 1000), tercih = str(b.tercih, 300);
+      if (!konu) fail(400, 'Görüşmek istediğin konuyu kısaca yaz.');
+      const acik = await env.DB.prepare(`SELECT COUNT(*) n FROM meetings WHERE student_id = ? AND durum = 'talep'`).bind(sid).first();
+      if (acik.n >= 3) fail(400, 'Yanıt bekleyen 3 görüşme talebin var. Danışmanın yanıtladıktan sonra yenisini gönderebilirsin.');
+      await env.DB.prepare(`INSERT INTO meetings (student_id, durum, talep_eden, konu, tercih, created_at) VALUES (?,?,?,?,?,?)`).bind(sid, 'talep', 'ogrenci', konu, tercih, now()).run();
+      await log(env, sid, user.id, 'gorusme-talep', konu.slice(0, 120));
+      notify(ctx, env, advisorEmail(env), `${s.ad}: görüşme talebi`, `${s.ad} panelden görüşme talep etti.\n\nKonu: ${konu}${tercih ? `\nUygun zamanlar: ${tercih}` : ''}`);
+      return json({ ok: true });
+    }
+    // Danışman: plan oluşturur ya da yapılmış bir görüşmenin notunu doğrudan girer
+    const g = gorusmeGirdi(b);
+    const durum = b.durum === 'yapildi' ? 'yapildi' : 'planli';
+    if (durum === 'planli' && !g.tarih) fail(400, 'Görüşme tarihini ve saatini seçin.');
+    if (durum === 'yapildi' && !g.konusulanlar && !g.kararlar && !g.gorev) fail(400, 'Görüşme notunu yazın.');
+    await env.DB.prepare(`INSERT INTO meetings (student_id, durum, talep_eden, konu, tarih, bicim, yer, konusulanlar, kararlar, ozel, gorev, gorev_tarih, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(sid, durum, 'danisman', g.konu, g.tarih || (durum === 'yapildi' ? now().slice(0, 16) : null), g.bicim, g.yer, g.konusulanlar, g.kararlar, g.ozel, g.gorev, g.gorevTarih, now(), now()).run();
+    await log(env, sid, user.id, durum === 'planli' ? 'gorusme-planla' : 'gorusme-not', g.tarih || '');
+    if (durum === 'planli') notify(ctx, env, s.email, 'Görüşme planlandı', planMetni(s.ad, g));
+    else notify(ctx, env, s.email, 'Görüşme notu eklendi', notMetni(s.ad, g));
+    return json({ ok: true });
+  }
+  if ((m = p.match(/^\/api\/gorusmeler\/(\d+)$/))) {
+    const r = await env.DB.prepare(`SELECT g.*, u.email, u.ad sad FROM meetings g JOIN users u ON u.id = g.student_id WHERE g.id = ?`).bind(+m[1]).first();
+    if (!r || !canSee(user, r.student_id)) fail(404, 'Görüşme bulunamadı.');
+    const sid = r.student_id;
+    if (M === 'DELETE') {
+      if (!isAdv) fail(403, 'Görüşme kaydını yalnızca danışman silebilir.');
+      await env.DB.prepare(`DELETE FROM meetings WHERE id = ?`).bind(r.id).run();
+      await log(env, sid, user.id, 'gorusme-sil', r.tarih || '');
+      return json({ ok: true });
+    }
+    if (M !== 'PUT') fail(405, 'Desteklenmeyen işlem.');
+    const b = await body(req);
+    if (!isAdv) {
+      if (b.islem === 'gorev') {
+        if (r.durum !== 'yapildi' || !r.gorev) fail(400, 'Bu görüşmede görev yok.');
+        await env.DB.prepare(`UPDATE meetings SET gorev_tamam = ?, updated_at = ? WHERE id = ?`).bind(b.tamam ? 1 : 0, now(), r.id).run();
+        await log(env, sid, user.id, b.tamam ? 'gorev-tamam' : 'gorev-geri', r.gorev.slice(0, 120));
+        if (b.tamam) notify(ctx, env, advisorEmail(env), `${r.sad}: görev tamamlandı`, `${r.sad}, görüşmede belirlenen görevi tamamladı olarak işaretledi:\n\n${r.gorev}`);
+        return json({ ok: true });
+      }
+      if (b.islem === 'geri-cek') {
+        if (r.durum !== 'talep' || r.talep_eden !== 'ogrenci') fail(400, 'Yalnızca yanıt bekleyen talep geri çekilebilir.');
+        await env.DB.prepare(`DELETE FROM meetings WHERE id = ?`).bind(r.id).run();
+        await log(env, sid, user.id, 'gorusme-geri-cek', '');
+        return json({ ok: true });
+      }
+      fail(403, 'Bu işlemi danışman yapar.');
+    }
+    if (b.islem === 'planla') {
+      const g = gorusmeGirdi(b);
+      if (!g.tarih) fail(400, 'Görüşme tarihini ve saatini seçin.');
+      await env.DB.prepare(`UPDATE meetings SET durum = 'planli', tarih = ?, bicim = ?, yer = ?, updated_at = ? WHERE id = ?`).bind(g.tarih, g.bicim, g.yer, now(), r.id).run();
+      await log(env, sid, user.id, 'gorusme-planla', g.tarih);
+      notify(ctx, env, r.email, 'Görüşme planlandı', planMetni(r.sad, { ...g, konu: r.konu }));
+      return json({ ok: true });
+    }
+    if (b.islem === 'not') {
+      const g = gorusmeGirdi(b);
+      if (!g.konusulanlar && !g.kararlar && !g.gorev) fail(400, 'Görüşme notunu yazın.');
+      const ilk = r.durum !== 'yapildi';
+      const gorevDegisti = (g.gorev || '') !== (r.gorev || '');
+      await env.DB.prepare(`UPDATE meetings SET durum = 'yapildi', tarih = COALESCE(?, tarih, ?), konusulanlar = ?, kararlar = ?, ozel = ?, gorev = ?, gorev_tarih = ?, gorev_tamam = ?, updated_at = ? WHERE id = ?`)
+        .bind(g.tarih, now().slice(0, 16), g.konusulanlar, g.kararlar, g.ozel, g.gorev, g.gorevTarih, gorevDegisti ? 0 : r.gorev_tamam, now(), r.id).run();
+      await log(env, sid, user.id, ilk ? 'gorusme-not' : 'gorusme-not-guncelle', g.tarih || r.tarih || '');
+      if (ilk || gorevDegisti) notify(ctx, env, r.email, ilk ? 'Görüşme notu eklendi' : 'Görüşme notu güncellendi', notMetni(r.sad, g));
+      return json({ ok: true });
+    }
+    if (b.islem === 'iptal') {
+      if (r.durum === 'yapildi') fail(400, 'Yapılmış görüşme iptal edilemez; gerekirse kaydı silin.');
+      const neden = str(b.not, 600);
+      await env.DB.prepare(`UPDATE meetings SET durum = 'iptal', iptal_notu = ?, updated_at = ? WHERE id = ?`).bind(neden, now(), r.id).run();
+      await log(env, sid, user.id, 'gorusme-iptal', neden.slice(0, 120));
+      notify(ctx, env, r.email, r.durum === 'talep' ? 'Görüşme talebin hakkında' : 'Görüşme iptal edildi', `Merhaba ${r.sad},\n\n${r.durum === 'talep' ? 'Görüşme talebin şu an için planlanamadı.' : `${trZaman(r.tarih)} tarihli görüşme iptal edildi.`}${neden ? `\n\nNot: ${neden}` : ''}`);
+      return json({ ok: true });
+    }
+    fail(400, 'Bilinmeyen işlem.');
+  }
+
+  /* ---- Zaman çizelgesi ---- */
+  if ((m = p.match(/^\/api\/ogrenciler\/([\w-]+)\/zaman$/)) && M === 'GET') {
+    const sid = m[1]; const s = await studentOr404(env, user, sid);
+    return json({ liste: await zamanCizelgesi(env, s, sid) });
   }
 
   fail(404, 'Bulunamadı.');
+}
+
+/* ---------------- Dosya ve görüşme yardımcıları ---------------- */
+const DOSYA_UZANTI = ['doc', 'docx', 'pdf', 'odt', 'rtf'];
+function dosyaKontrol(f) {
+  if (f.size > MAX_FILE) fail(413, 'Dosya 25 MB\'tan büyük olamaz.');
+  const ext = (f.name.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
+  if (!DOSYA_UZANTI.includes(ext)) fail(400, 'Yalnızca Word, PDF, ODT veya RTF yükleyebilirsin.');
+  return ext;
+}
+const dosyaAdi = n => String(n).replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 150);
+async function indir(env, key, ad, tur) {
+  const o = env.FILES && await env.FILES.get(key);
+  if (!o) fail(404, 'Dosya depoda bulunamadı.');
+  return new Response(o.body, { headers: {
+    'Content-Type': tur || 'application/octet-stream',
+    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(ad)}`,
+    'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+  } });
+}
+const tarihSaat = v => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v || '') ? v : null;
+const gunTarih = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null;
+function gorusmeGirdi(b) {
+  return {
+    konu: str(b.konu, 1000) || null, tarih: tarihSaat(b.tarih), bicim: ['yuz', 'cevrimici'].includes(b.bicim) ? b.bicim : 'yuz', yer: str(b.yer, 400) || null,
+    konusulanlar: str(b.konusulanlar, 6000) || null, kararlar: str(b.kararlar, 3000) || null, ozel: str(b.ozel, 3000) || null,
+    gorev: str(b.gorev, 1000) || null, gorevTarih: gunTarih(b.gorevTarih),
+  };
+}
+const AYLAR = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+const trZaman = v => { if (!v) return ''; const [d, t] = v.split('T'); const [y, a, g] = d.split('-'); return `${+g} ${AYLAR[+a - 1]} ${y}${t ? ', ' + t.slice(0, 5) : ''}`; };
+function planMetni(ad, g) {
+  return `Merhaba ${ad},\n\nGörüşmemiz planlandı:\n\nTarih: ${trZaman(g.tarih)} (Türkiye saati)\n${g.bicim === 'cevrimici' ? 'Çevrim içi' : 'Yüz yüze'}${g.yer ? ': ' + g.yer : ''}${g.konu ? `\nKonu: ${g.konu}` : ''}\n\nGörüşmeden önce aklındaki soruları not almanı öneririm.`;
+}
+function notMetni(ad, g) {
+  return `Merhaba ${ad},\n\nGörüşmemizin notu panele eklendi.${g.kararlar ? `\n\nKararlar:\n${g.kararlar}` : ''}${g.gorev ? `\n\nSıradaki görevin: ${g.gorev}${g.gorevTarih ? ` (hedef: ${trZaman(g.gorevTarih)})` : ''}` : ''}\n\nAyrıntılar panelde "Görüşmeler" bölümünde.`;
+}
+
+/* ---------------- Zaman çizelgesi ---------------- */
+const KISA = (t, n = 140) => { const x = String(t || '').replace(/\s+/g, ' ').trim(); return x.length > n ? x.slice(0, n - 1) + '…' : x; };
+const ADIM_ISLEM = { gonder: 'onaya gönderildi', 'geri-cek': 'onaydan geri çekildi', onayla: 'onaylandı', isaretle: 'tamamlandı olarak işaretlendi', duzeltme: 'için düzeltme istendi', sifirla: 'geri alındı' };
+async function zamanCizelgesi(env, s, sid) {
+  const kat = PROGRAMS[s.program]?.katalog || [];
+  const ders = kod => { const c = kat.find(x => x.kod === kod); return c ? `${c.kod} ${c.ad}` : kod; };
+  const [ev, f, fc, ms, rm] = await env.DB.batch([
+    env.DB.prepare(`SELECT actor, action, detail, created_at FROM events WHERE student_id = ? ORDER BY id DESC LIMIT 300`).bind(sid),
+    env.DB.prepare(`SELECT v, ad, aciklama, created_at FROM files WHERE student_id = ?`).bind(sid),
+    env.DB.prepare(`SELECT c.kimden, c.metin, c.ek_ad, c.created_at, f.v FROM file_comments c JOIN files f ON f.id = c.file_id WHERE c.student_id = ?`).bind(sid),
+    env.DB.prepare(`SELECT kimden, metin, created_at FROM messages WHERE student_id = ?`).bind(sid),
+    env.DB.prepare(`SELECT rkey, sent_at FROM reminders WHERE student_id = ?`).bind(sid),
+  ]);
+  const L = [];
+  const ekle = (t, kim, tur, baslik, detay = '') => L.push({ t, kim, tur, baslik, detay });
+  const kimOl = a => a === sid ? 'ogrenci' : a ? 'danisman' : 'sistem';
+  for (const e of ev.results) {
+    const kim = kimOl(e.actor), a = e.action, d = e.detail || '';
+    if (a.startsWith('adim-')) { const i = a.slice(5); ekle(e.created_at, kim, i === 'onayla' || i === 'isaretle' ? 'tamam' : i === 'duzeltme' ? 'uyari' : 'adim', `“${ADIM[d]?.ad || d}” ${ADIM_ISLEM[i] || i}`); }
+    else if (a === 'ders-ekle') ekle(e.created_at, kim, 'ders', `Ders eklendi: ${ders(d.split('|')[0])}`, 'Bu dönem alınıyor');
+    else if (a === 'ders-sonuc') { const [k, n] = d.split('|'); ekle(e.created_at, kim, 'ders', `Ders sonucu girildi: ${ders(k)}`, n ? `Not: ${n}` : 'Başarılı'); }
+    else if (a === 'ders-sil') ekle(e.created_at, kim, 'ders', `Ders kaydı silindi: ${ders(d)}`);
+    else if (a === 'ders-duzeltme') ekle(e.created_at, kim, 'uyari', `Ders için düzeltme istendi: ${ders(d)}`);
+    else if (a.startsWith('ders-')) ekle(e.created_at, kim, 'ders', `Ders kaydı güncellendi: ${ders(d)}`);
+    else if (a === 'profil') ekle(e.created_at, kim, 'bilgi', 'Kişisel bilgiler güncellendi');
+    else if (a === 'tez-bilgi') ekle(e.created_at, kim, 'bilgi', 'Tez bilgileri güncellendi', d);
+    else if (a === 'ogrenci-eklendi') ekle(e.created_at, 'danisman', 'bilgi', 'Panele eklendi');
+    else if (a === 'gorusme-talep') ekle(e.created_at, kim, 'gorusme', 'Görüşme talep edildi', d);
+    else if (a === 'gorusme-geri-cek') ekle(e.created_at, kim, 'gorusme', 'Görüşme talebi geri çekildi');
+    else if (a === 'gorusme-planla') ekle(e.created_at, kim, 'gorusme', 'Görüşme planlandı', trZaman(d));
+    else if (a === 'gorusme-not') ekle(e.created_at, kim, 'gorusme', 'Görüşme yapıldı, not eklendi', trZaman(d));
+    else if (a === 'gorusme-not-guncelle') ekle(e.created_at, kim, 'gorusme', 'Görüşme notu güncellendi', trZaman(d));
+    else if (a === 'gorusme-iptal') ekle(e.created_at, kim, 'uyari', 'Görüşme iptal edildi', d);
+    else if (a === 'gorusme-sil') ekle(e.created_at, kim, 'gorusme', 'Görüşme kaydı silindi');
+    else if (a === 'gorev-tamam') ekle(e.created_at, kim, 'tamam', 'Görev tamamlandı', d);
+    else if (a === 'gorev-geri') ekle(e.created_at, kim, 'gorusme', 'Görev yeniden açıldı', d);
+  }
+  for (const x of f.results) ekle(x.created_at, null, 'dosya', `Tez sürümü yüklendi: v${x.v}`, x.aciklama ? KISA(x.aciklama) : x.ad);
+  for (const x of fc.results) ekle(x.created_at, x.kimden, 'yorum', `v${x.v} sürümüne ${x.kimden === 'danisman' ? 'yorum' : 'yanıt'}`, KISA(x.metin) + (x.ek_ad ? ` · Ek: ${x.ek_ad}` : ''));
+  for (const x of ms.results) ekle(x.created_at, x.kimden, 'mesaj', x.kimden === 'danisman' ? 'Danışman not yazdı' : 'Öğrenci not yazdı', KISA(x.metin));
+  for (const x of rm.results) ekle(x.sent_at, 'sistem', 'hatirlatma', 'Hatırlatma e-postası gönderildi', KONU_ADI(x.rkey));
+  return L.filter(x => x.t).sort((a, b) => b.t.localeCompare(a.t)).slice(0, 400);
 }

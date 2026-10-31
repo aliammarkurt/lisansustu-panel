@@ -2,6 +2,13 @@
 import { PROGRAMS, SONUCLU, AYAR_VARSAYILAN } from '../public/shared.js';
 
 const GUN = 864e5;
+// Öğrencinin kendisinden gelen son etkinlik (sessizlik hatırlatması ve danışman risk göstergesi için)
+export const SON_ETKINLIK_SQL = `SELECT MAX(x) son FROM (
+  SELECT MAX(created_at) x FROM files WHERE student_id = ?1
+  UNION ALL SELECT MAX(created_at) FROM messages WHERE student_id = ?1 AND kimden = 'ogrenci'
+  UNION ALL SELECT MAX(updated_at) FROM courses WHERE student_id = ?1
+  UNION ALL SELECT MAX(created_at) FROM file_comments WHERE student_id = ?1 AND kimden = 'ogrenci'
+  UNION ALL SELECT MAX(created_at) FROM events WHERE student_id = ?1 AND actor = ?1)`;
 // Türkiye saatiyle bugün
 function bugun() {
   const d = new Date(Date.now() + 3 * 36e5);
@@ -97,7 +104,7 @@ export async function hatirlatmalar(env, { gonder = false, sendMail, ayar } = {}
   for (const s of ogr) {
     const [c, son] = await env.DB.batch([
       env.DB.prepare(`SELECT kod, durum, notu, final, sonuc FROM courses WHERE student_id = ?`).bind(s.id),
-      env.DB.prepare(`SELECT MAX(x) son FROM (SELECT MAX(created_at) x FROM files WHERE student_id = ?1 UNION ALL SELECT MAX(created_at) FROM messages WHERE student_id = ?1 AND kimden = 'ogrenci' UNION ALL SELECT MAX(updated_at) FROM courses WHERE student_id = ?1)`).bind(s.id),
+      env.DB.prepare(SON_ETKINLIK_SQL).bind(s.id),
     ]);
     const tarihler = Object.values(parse(s.adim_tarih, {}));
     const sonEtkinlik = [son.results[0]?.son, ...tarihler].filter(Boolean).sort().pop() || null;
@@ -114,7 +121,7 @@ export async function hatirlatmalar(env, { gonder = false, sendMail, ayar } = {}
 }
 
 const KONULAR = [['donem-basi', 'dönem başı güncellemesi'], ['not-gir', 'not girişi'], ['tez-konusu', 'tez konusu'], ['ders-donemi', 'ders dönemi sonu'], ['savunma', 'savunma yaklaşıyor'], ['ciltli', 'ciltli teslim'], ['sessiz', 'uzun süredir güncelleme yok']];
-const KONU_ADI = k => (KONULAR.find(([p]) => k.startsWith(p)) || [, k])[1];
+export const KONU_ADI = k => (KONULAR.find(([p]) => k.startsWith(p)) || [, k])[1];
 
 // Danışmana haftalık özet (pazartesi)
 export async function haftalikOzet(env) {
@@ -129,11 +136,23 @@ export async function haftalikOzet(env) {
     if (tez.sinavTarih) { const k = gunFarki(tez.sinavTarih, t.ms); if (k >= 0 && k <= 30) savunma.push(`${s.ad}: ${tez.sinavTarih.split('-').reverse().join('.')} (${k} gün sonra)`); }
   }
   const yorumsuz = (await env.DB.prepare(`SELECT u.ad, f.v FROM files f JOIN users u ON u.id = f.student_id JOIN students st ON st.user_id = u.id WHERE (f.yorum IS NULL OR f.yorum = '') AND st.arsiv = 0`).all()).results;
-  if (!bekleyen.length && !savunma.length && !yorumsuz.length && !gonderilen.length) return null;
+  // Danışman yorumundan sonra öğrencinin yanıt yazdığı sürümler
+  const yanitli = (await env.DB.prepare(`SELECT u.ad, f.v FROM files f JOIN users u ON u.id = f.student_id JOIN students st ON st.user_id = u.id
+    WHERE st.arsiv = 0 AND f.yorum IS NOT NULL AND f.yorum != '' AND (SELECT kimden FROM file_comments c WHERE c.file_id = f.id ORDER BY c.id DESC LIMIT 1) = 'ogrenci'`).all()).results;
+  const gorusme = (await env.DB.prepare(`SELECT u.ad, g.durum, g.konu, g.tarih, g.gorev, g.gorev_tarih FROM meetings g JOIN users u ON u.id = g.student_id JOIN students st ON st.user_id = u.id
+    WHERE st.arsiv = 0 AND (g.durum = 'talep' OR (g.durum = 'planli' AND g.tarih >= ?1) OR (g.durum = 'yapildi' AND g.gorev IS NOT NULL AND g.gorev_tamam = 0 AND g.gorev_tarih < ?2))`).bind(t.iso, t.iso).all()).results;
+  const talepler = gorusme.filter(g => g.durum === 'talep').map(g => `${g.ad}: ${g.konu || 'konu belirtilmedi'}`);
+  const planli = gorusme.filter(g => g.durum === 'planli' && gunFarki(g.tarih, t.ms) <= 7).map(g => `${g.ad}: ${g.tarih.slice(0, 10).split('-').reverse().join('.')} ${g.tarih.slice(11, 16)}`);
+  const gecikmis = gorusme.filter(g => g.durum === 'yapildi').map(g => `${g.ad}: ${g.gorev} (hedef ${g.gorev_tarih.split('-').reverse().join('.')})`);
+  if (!bekleyen.length && !savunma.length && !yorumsuz.length && !yanitli.length && !talepler.length && !planli.length && !gecikmis.length && !gonderilen.length) return null;
   const blok = (b, L) => L.length ? `${b}\n${L.map(x => '• ' + x).join('\n')}\n\n` : '';
   return 'Günaydın Hocam,\n\nLisansüstü Panel haftalık özeti:\n\n'
     + blok('Onay bekleyenler', bekleyen)
     + blok('Yorum bekleyen tez sürümleri', yorumsuz.map(f => `${f.ad}: v${f.v}`))
+    + blok('Yorumunuza yanıt gelen sürümler', yanitli.map(f => `${f.ad}: v${f.v}`))
+    + blok('Yanıt bekleyen görüşme talepleri', talepler)
+    + blok('Bu haftaki görüşmeler', planli)
+    + blok('Hedef tarihi geçen görevler', gecikmis)
     + blok('Önümüzdeki 30 gündeki savunmalar', savunma)
     + blok('Son bir haftada öğrencilere giden hatırlatmalar', gonderilen.map(h => `${h.ogrenci}: ${KONU_ADI(h.rkey)}`));
 }
