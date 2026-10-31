@@ -68,7 +68,9 @@ export const PROGRAMS = {
 };
 
 export const TUR_AD = { zorunlu: 'Zorunlu', secmeli: 'Seçmeli', bay: 'Zorunlu (kredisiz)', etik: 'Zorunlu (kredisiz)', seminer: 'Seminer', uad: 'UAD', tez: 'Tez' };
-export const SONUCLU = ['seminer', 'uad', 'tez']; // başarılı/başarısız değerlendirilenler
+// Başarılı/başarısız (BL) değerlendirilenler. Kredisiz BAY ve Bilimsel Etik de BL'dir;
+// önceden notla girilmiş kayıtları (ör. af/muafiyet için 100) da geçerli sayılır.
+export const SONUCLU = ['seminer', 'uad', 'tez', 'bay', 'etik'];
 
 export const ADIMLAR = [
   { grup: 'oneri', ad: 'Tez önerisi', items: [

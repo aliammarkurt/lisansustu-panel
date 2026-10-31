@@ -69,7 +69,8 @@ function yonetmelik(kayit, tur) {
   return { ad: '24/9/2023 tarihli yönetmelik', not: 'Geçici Madde 1 gereği; kurallar o yönetmeliğe göre doğrulanacak' };
 }
 function gecti(r, c) {
-  if (SONUCLU.includes(c.tur) || r.not == null) return r.sonuc === 'basarili';
+  if (r.sonuc === 'basarili') return true;
+  if (r.not == null) return false;
   return r.not >= K().gecmeNotu;
 }
 // Alınmakta olan ders yarım sayılır; sonucu girilip geçilen ders tam sayılır.
@@ -527,7 +528,7 @@ function derslerHTML(s) {
       <div class="stat"><span class="eyebrow">Kredili ders (en az ${K().dersMin})</span><span class="v mono">${fmt(a.ders)}</span><div class="meter"><i style="width:${Math.min(100, a.ders / K().dersMin * 100)}%"></i></div></div>
       <div class="stat"><span class="eyebrow">AKTS (en az ${K().aktsMin})</span><span class="v mono">${fmt(a.akts)}</span><div class="meter"><i style="width:${Math.min(100, a.akts / K().aktsMin * 100)}%"></i></div></div>
     </div>
-    <p class="muted" style="margin:0;font-size:13.5px">Şu an aldığın dersler çubukta yarım sayılır; notunu girdiğinde ders yeşile döner ve tam sayılır. Bilimsel Araştırma Yöntemleri ve Bilimsel Etik zorunludur ama ${K().dersMin} ders sayısına girmez. Seminer ve UAD başarılı/başarısız olarak değerlendirilir. Bir dersin sayılması için notunun en az ${K().gecmeNotu} olması gerekir.</p>
+    <p class="muted" style="margin:0;font-size:13.5px">Şu an aldığın dersler çubukta yarım sayılır; notunu girdiğinde ders yeşile döner ve tam sayılır. Bilimsel Araştırma Yöntemleri ve Bilimsel Etik zorunludur ama ${K().dersMin} ders sayısına girmez. Bu iki ders, Seminer ve UAD başarılı/başarısız (BL) olarak değerlendirilir. Bir dersin sayılması için notunun en az ${K().gecmeNotu} olması gerekir.</p>
     ${terms.length ? terms.map(tbl).join('') : '<p class="muted">Henüz ders eklenmedi. Aşağıdaki program dersleri listesinden aldığın derslere tıklayarak başla.</p>'}
   </section>
   ${programDersleriHTML(s, adv)}`;

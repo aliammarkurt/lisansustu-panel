@@ -1,5 +1,5 @@
 // Dönemlik hatırlatmalar: her sabah çalışır, her hatırlatmayı bir öğrenciye yalnızca bir kez gönderir.
-import { PROGRAMS, SONUCLU, AYAR_VARSAYILAN } from '../public/shared.js';
+import { PROGRAMS, AYAR_VARSAYILAN } from '../public/shared.js';
 
 const GUN = 864e5;
 // Öğrencinin kendisinden gelen son etkinlik (sessizlik hatırlatması ve danışman risk göstergesi için)
@@ -24,7 +24,8 @@ const gunFarki = (isoA, ms) => Math.round((Date.UTC(...isoA.slice(0, 10).split('
 const parse = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d; } };
 
 function gecti(r, c, K) {
-  if (SONUCLU.includes(c.tur) || r.notu == null) return r.sonuc === 'basarili';
+  if (r.sonuc === 'basarili') return true;
+  if (r.notu == null) return false;
   return r.notu >= K.gecmeNotu;
 }
 
