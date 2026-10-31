@@ -230,8 +230,26 @@ function bekleyenler() {
 function basHarf(ad) { return (ad || '?').trim().split(/\s+/).filter(Boolean).slice(0, 2).map(x => x[0].toLocaleUpperCase('tr')).join(''); }
 function avatar(s, boy = 36) {
   const st = `width:${boy}px;height:${boy}px;font-size:${Math.round(boy * 0.38)}px`;
-  return s.foto ? `<img class="av" src="/api/foto/${s.id}?v=${s.foto}" alt="" style="${st}" loading="lazy">` : `<span class="av" style="${st}" aria-hidden="true">${esc(basHarf(s.ad))}</span>`;
+  return s.foto ? `<img class="av zoom" src="/api/foto/${s.id}?v=${s.foto}" alt="${esc(s.ad)}" title="Büyütmek için tıklayın" data-zoom="1" style="${st}" loading="lazy">` : `<span class="av" style="${st}" aria-hidden="true">${esc(basHarf(s.ad))}</span>`;
 }
+// Fotoğrafa tıklanınca büyük görünüm (render döngüsünden bağımsız)
+function fotoBuyut(img) {
+  const kutu = document.createElement('div');
+  kutu.className = 'lightbox'; kutu.setAttribute('role', 'dialog'); kutu.setAttribute('aria-modal', 'true'); kutu.setAttribute('aria-label', img.alt || 'Profil fotoğrafı');
+  kutu.innerHTML = `<figure><img src="${img.src}" alt="${esc(img.alt)}"><figcaption>${esc(img.alt)}</figcaption></figure><button class="lb-x" aria-label="Kapat">×</button>`;
+  const kapat = () => { kutu.remove(); document.removeEventListener('keydown', tus, true); };
+  const tus = ev => { if (ev.key === 'Escape') { ev.stopPropagation(); kapat(); } };
+  kutu.addEventListener('click', ev => { if (ev.target.tagName !== 'IMG') kapat(); });
+  document.addEventListener('keydown', tus, true);
+  document.body.appendChild(kutu);
+  kutu.querySelector('.lb-x').focus();
+}
+document.addEventListener('click', e => {
+  const img = e.target.closest && e.target.closest('img[data-zoom]');
+  if (!img) return;
+  e.preventDefault(); e.stopPropagation();
+  fotoBuyut(img);
+}, true);
 // Seçilen görseli ortadan kare kırpıp 400×400 JPEG'e küçültür
 async function fotoHazirla(dosya) {
   let img;
