@@ -510,14 +510,15 @@ async function route(req, env, ctx, url) {
           .bind(str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60), b.arsiv ? 1 : 0, kayitTuru(b.kayitTuru), sid),
       ]);
     } else {
-      // Öğrenci e-posta (giriş adresi) ve arşiv dışındaki her şeyi güncelleyebilir
+      // Öğrenci e-posta (giriş adresi), arşiv ve kayıt türü dışındaki her şeyi güncelleyebilir
       const ad = str(b.ad, 120);
       if (!ad) fail(400, 'Ad soyad boş olamaz.');
       if (!PROGRAMS[b.program] || !KAYIT_DONEMLERI.includes(b.kayit)) fail(400, 'Program ve kayıt dönemi geçersiz.');
       await env.DB.batch([
         env.DB.prepare(`UPDATE users SET ad = ? WHERE id = ?`).bind(ad, sid),
-        env.DB.prepare(`UPDATE students SET no = ?, program = ?, kayit = ?, donem = ?, danisman_donem = ?, statu = ?, kayit_turu = ?, profil_tamam = 1 WHERE user_id = ?`)
-          .bind(str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60), kayitTuru(b.kayitTuru), sid),
+        // Kayıt türünü (af) yalnızca danışman belirler; şartları ve süreyi değiştirdiği için öğrenci değiştiremez
+        env.DB.prepare(`UPDATE students SET no = ?, program = ?, kayit = ?, donem = ?, danisman_donem = ?, statu = ?, profil_tamam = 1 WHERE user_id = ?`)
+          .bind(str(b.no, 30), b.program, b.kayit, intIn(b.donem, 1, 12) || 1, intIn(b.danismanDonem, 1, 12) || 1, str(b.statu, 60), sid),
       ]);
     }
     await log(env, sid, user.id, 'profil', '');

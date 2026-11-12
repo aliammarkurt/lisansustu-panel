@@ -72,6 +72,10 @@ export const TUR_AD = { zorunlu: 'Zorunlu', secmeli: 'Seçmeli', bay: 'Zorunlu (
 // önceden notla girilmiş kayıtları (ör. af/muafiyet için 100) da geçerli sayılır.
 export const SONUCLU = ['seminer', 'uad', 'tez', 'bay', 'etik'];
 
+// Akademik faaliyet (M23/1): Senato esasları gelene kadar danışmanın belirlediği geçici ölçüt
+export const FAALIYET_METNI = 'Geçici ölçüt (Senato kararı bekleniyor): TR Dizin kapsamında dizinlenen bir makale, bildiri ya da kitap bölümü (M23/1).';
+const FAALIYET_ESKI = 'Senato tarafından kabul edilen akademik faaliyetler (M23/1). Ayrıntılar daha sonra eklenecek.';
+
 export const ADIMLAR = [
   { grup: 'oneri', ad: 'Tez önerisi', items: [
     { k: 'konu', ad: 'Tez konusunun belirlenmesi', w: 3, not: 'En geç 2. yarıyıl sonuna kadar enstitüye önerilir, EYK onayıyla kesinleşir (M22).' },
@@ -88,13 +92,13 @@ export const ADIMLAR = [
     { k: 'tartisma', ad: 'Tartışma, sonuç ve öneriler', w: 2.5 },
   ] },
   { grup: 'hazirlik', ad: 'Savunmaya hazırlık', items: [
-    { k: 'faaliyet', ad: 'Akademik faaliyet şartı', w: 2, not: 'Senato tarafından kabul edilen akademik faaliyetler (M23/1). Ayrıntılar daha sonra eklenecek.' },
+    { k: 'faaliyet', ad: 'Akademik faaliyet şartı', w: 2, not: FAALIYET_METNI },
     { k: 'savunulabilir', ad: 'Danışmanın “savunulabilir” görüşü', w: 2, by: 'danisman', not: "Danışman tezi görüşüyle birlikte ABD'ye teslim eder (M23/2)." },
     { k: 'intihal', ad: 'İntihal raporu', w: 2, by: 'danisman', not: 'Enstitü raporu danışmana ve jüriye gönderir (M23/4).' },
-    { k: 'juri', ad: 'Jüri önerisi ve EYK onayı', w: 2, by: 'danisman', not: '3 asil (danışman + en az 1 dış üye), 2 yedek (en az 1 dış üye).' },
+    { k: 'juri', ad: 'Jüri önerisi ve EYK onayı', w: 2, by: 'danisman', not: '3 veya 5 asıl üye (danışman + en az 1 dış üye; 3 kişilik jüride ikinci danışman üye olamaz), 2 yedek (en az 1 dış üye) (M23/3).' },
   ] },
   { grup: 'savunma', ad: 'Savunma', items: [
-    { k: 'savunma', ad: 'Tez savunma sınavı', w: 8, by: 'danisman', not: 'Kabul, düzeltme veya ret. Düzeltmede en geç 3 ay içinde aynı jüriye yeniden savunma (M23/8).' },
+    { k: 'savunma', ad: 'Tez savunma sınavı', w: 8, by: 'danisman', not: 'Kabul, düzeltme veya ret. Düzeltmede en geç 3 ay içinde aynı jüriye yeniden savunma; bu süre azami süreye dâhil değildir (M23/8).' },
   ] },
   { grup: 'teslim', ad: 'Mezuniyet', items: [
     { k: 'ciltli', ad: 'Ciltli tezin teslimi', w: 2, not: 'En az 3 kopya, savunmadan itibaren 1 ay içinde (M23/10).' },
@@ -104,6 +108,30 @@ export const ADIMLAR = [
 
 export const ADIM = {};
 ADIMLAR.forEach(g => g.items.forEach(i => { ADIM[i.k] = { ...i, grup: g.grup }; }));
+
+// Af ile dönen öğrenciler tez aşamasında döndüğü için akademik faaliyet (yayın) şartı aranmaz.
+export const AF_ARANMAYAN = ['faaliyet'];
+export const adimGerekli = (kayitTuru, k) => !(kayitTuru === 'af' && AF_ARANMAYAN.includes(k));
+
+/* ---------------- Akademik dönemler ---------------- */
+// '2026-2027 Güz' → sayı (yarıyıl sırası); karşılaştırma ve fark için
+export const donemSira = d => { const m = /^(\d{4})-\d{4} (Güz|Bahar)$/.exec(d || ''); return m ? +m[1] * 2 + (m[2] === 'Bahar' ? 1 : 0) : null; };
+export const donemAdi = n => { const y = Math.floor(n / 2); return `${y}-${y + 1} ${n % 2 ? 'Bahar' : 'Güz'}`; };
+// Türkiye saatiyle içinde bulunulan akademik dönem (eylül–ocak güz, şubat–ağustos bahar)
+export function simdikiDonem(tarih = new Date()) {
+  const d = new Date(tarih.getTime() + 3 * 36e5), y = d.getUTCFullYear(), m = d.getUTCMonth() + 1;
+  if (m >= 9) return `${y}-${y + 1} Güz`;
+  if (m === 1) return `${y - 1}-${y} Güz`;
+  return `${y - 1}-${y} Bahar`;
+}
+// Af ile dönen öğrencinin süresi: dönüş döneminden başlayarak afSure yarıyıl
+export function afSure(s, kural) {
+  const bas = donemSira(s.kayit), n = Number(kural?.afSure) || 4;
+  if (bas == null) return null;
+  const bitis = donemAdi(bas + n - 1), simdi = donemSira(simdikiDonem());
+  const yil = bitis.slice(5, 9);
+  return { bitis, ay: bitis.endsWith('Bahar') ? `Ağustos ${yil}` : `Şubat ${yil}`, kalan: bas + n - simdi, toplam: n };
+}
 
 export const KAYIT_DONEMLERI = ['2023-2024 Güz', '2023-2024 Bahar', '2024-2025 Güz', '2024-2025 Bahar', '2025-2026 Güz', '2025-2026 Bahar', '2026-2027 Güz', '2026-2027 Bahar', '2027-2028 Güz', '2027-2028 Bahar'];
 
@@ -125,8 +153,8 @@ export const AYAR_VARSAYILAN = {
     aed: { ad: 'Aile Danışmanlığı Tezli Yüksek Lisans', kisa: 'Aile Danışmanlığı Tezli YL', abd: 'Aile Eğitimi ve Danışmanlığı Anabilim Dalı', baskan: 'Prof. Dr. Burhan Çapri' },
   },
   yonetmelik: { ad: '28/6/2026 tarihli Mersin Üniversitesi Lisansüstü Eğitim-Öğretim ve Sınav Yönetmeliği', ilkDonem: '2026-2027 Güz' },
-  kural: { krediMin: 21, dersMin: 7, aktsMin: 120, gecmeNotu: 70, gnoMin: 70, normalSure: 4, azamiSure: 6, konuSonYariyil: 2, ciltliGun: 30, lisansDersMax: 2, disDersMax: 2 },
-  metin: { faaliyet: 'Senato tarafından kabul edilen akademik faaliyetler (M23/1). Ayrıntılar daha sonra eklenecek.' },
+  kural: { krediMin: 21, dersMin: 7, aktsMin: 120, gecmeNotu: 70, gnoMin: 70, normalSure: 4, azamiSure: 6, konuSonYariyil: 2, ciltliGun: 30, lisansDersMax: 2, disDersMax: 2, afSure: 4 },
+  metin: { faaliyet: FAALIYET_METNI },
 };
 
 // Kayıtlı ayarları varsayılanların üzerine güvenle birleştirir
@@ -134,6 +162,8 @@ export function ayarBirlestir(kayitli) {
   const v = JSON.parse(JSON.stringify(AYAR_VARSAYILAN));
   const k = kayitli || {};
   for (const grup of ['danisman', 'enstitu', 'yonetmelik', 'kural', 'metin']) Object.assign(v[grup], k[grup] || {});
+  // Kayıtlı ayarlarda eski yer tutucu metin kaldıysa geçici ölçütü göster
+  if (!v.metin.faaliyet || v.metin.faaliyet === FAALIYET_ESKI) v.metin.faaliyet = FAALIYET_METNI;
   for (const p of Object.keys(v.programlar)) Object.assign(v.programlar[p], (k.programlar || {})[p] || {});
   for (const x of Object.keys(v.kural)) { const n = Number(v.kural[x]); v.kural[x] = Number.isFinite(n) && n >= 0 ? n : AYAR_VARSAYILAN.kural[x]; }
   return v;

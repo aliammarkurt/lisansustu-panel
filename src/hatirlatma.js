@@ -1,5 +1,5 @@
 // Dönemlik hatırlatmalar: her sabah çalışır, her hatırlatmayı bir öğrenciye yalnızca bir kez gönderir.
-import { PROGRAMS, AYAR_VARSAYILAN } from '../public/shared.js';
+import { PROGRAMS, AYAR_VARSAYILAN, afSure } from '../public/shared.js';
 
 const GUN = 864e5;
 // Öğrencinin kendisinden gelen son etkinlik (sessizlik hatırlatması ve danışman risk göstergesi için)
@@ -47,18 +47,22 @@ function kurallar(s, dersler, sonEtkinlik, t, K) {
     }
   }
 
+  // Af ile dönenlere gecikme uyarısı yerine kalan süre bildirilir
+  const af = s.kayit_turu === 'af' ? afSure(s, K) : null;
+  const afNot = af && af.kalan > 0 ? `\n\nHatırlatma: af kapsamındaki süren ${af.bitis} dönemi sonuna (${af.ay}) kadar; bu dönem dahil ${af.kalan} yarıyıl.` : '';
+
   // 1. Dönem başı: yarıyıl ve ders güncellemesi
   const donemBasi = (t.m === 9 && t.g >= 22) || (t.m === 10 && t.g <= 12) || (t.m === 2 && t.g >= 10 && t.g <= 26);
   if (donemBasi) L.push({ key: `donem-basi-${donem}`, konu: 'Yeni dönem başladı: panelini güncelle',
-    metin: `Merhaba ${ad},\n\nYeni dönem hayırlı olsun! Panelde şu an ${s.donem}. yarıyılda görünüyorsun. Yarıyıl bilgin değiştiyse "Kişisel bilgiler"den güncelle, bu dönem aldığın dersleri de "Ders durumu" bölümünden "Alıyorum" ile ekle. Böylece ilerleme çubuğun güncel kalır.` });
+    metin: `Merhaba ${ad},\n\nYeni dönem hayırlı olsun! Panelde şu an ${s.donem}. yarıyılda görünüyorsun. Yarıyıl bilgin değiştiyse "Kişisel bilgiler"den güncelle, bu dönem aldığın dersleri de "Ders durumu" bölümünden "Alıyorum" ile ekle. Böylece ilerleme çubuğun güncel kalır.${afNot}` });
 
   // 2. Dönem sonu: not girişi
   const notDonemi = (t.m === 1 && t.g >= 20) || (t.m === 2 && t.g <= 9) || (t.m === 6 && t.g >= 20) || (t.m === 7 && t.g <= 10);
   if (notDonemi && aliyor.length) L.push({ key: `not-gir-${donem}`, konu: 'Notların açıklandıysa panele gir',
     metin: `Merhaba ${ad},\n\nDönem sonu geldi. Panelde hâlâ "alıyor" görünen ${aliyor.length} dersin var: ${aliyor.map(r => k(r.kod).ad).join(', ')}.\n\nNotların açıklandıysa "Ders durumu" bölümünden "Not gir" ile ekle; dersler yeşile döner ve çubuğun bir adım daha dolar.` });
 
-  // 3. Tez konusu (son yarıyıldan itibaren, ayda bir)
-  if (s.donem >= K.konuSonYariyil && !['tamam', 'onay'].includes(adim.konu)) L.push({ key: `tez-konusu-${t.y}-${t.m}`, konu: 'Tez konusu için küçük bir hatırlatma',
+  // 3. Tez konusu (son yarıyıldan itibaren, ayda bir; af ile dönenlerde süre bildirimi yeterli)
+  if (s.kayit_turu !== 'af' && s.donem >= K.konuSonYariyil && !['tamam', 'onay'].includes(adim.konu)) L.push({ key: `tez-konusu-${t.y}-${t.m}`, konu: 'Tez konusu için küçük bir hatırlatma',
     metin: `Merhaba ${ad},\n\nYönetmeliğe göre tez konusunun en geç ${K.konuSonYariyil}. yarıyıl sonuna kadar belirlenip enstitüye önerilmesi gerekiyor. Aklındaki fikirleri konuşmak için panelden bana not bırakabilir ya da görüşme isteyebilirsin. Belirlediğinde "Tez süreci"nde ilk adımı işaretlemeyi unutma.` });
 
   // 4. Ders dönemi sonu (normal kayıt, 4. yarıyıl): kredili dersler ve seminer

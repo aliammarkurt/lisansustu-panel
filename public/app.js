@@ -1,6 +1,6 @@
 // Lisansüstü Panel — arayüz
 // © 2026 Dr. Öğr. Üyesi Ali Ammar Kurt. Tüm hakları saklıdır.
-import { PROGRAMS, TUR_AD, SONUCLU, ADIMLAR, ADIM, KAYIT_DONEMLERI, TELIF, ayarBirlestir, ayarUygula, danismanAdi } from './shared.js';
+import { PROGRAMS, TUR_AD, SONUCLU, ADIMLAR, ADIM, KAYIT_DONEMLERI, TELIF, ayarBirlestir, ayarUygula, danismanAdi, adimGerekli, afSure } from './shared.js';
 import { belgeVerisi, BELGE_SABLON, dosyaAdi, ilgiEki } from './belge-veri.js';
 
 // Danışman panelindeki "Ayarlar"dan gelen değerler (kurallar, adlar)
@@ -61,7 +61,7 @@ function yonetmelik(kayit, tur) {
   const sira = d => KAYIT_DONEMLERI.indexOf(d);
   // Yüklenen yönetmeliklerden, öğrencinin kayıt döneminde yürürlükte olan en yenisi
   const uygun = (S.yonetmelikler || []).filter(y => sira(y.ilkDonem) <= sira(kayit)).sort((a, b) => sira(b.ilkDonem) - sira(a.ilkDonem) || b.id - a.id)[0];
-  if (tur === 'af') return { ad: 'Af kapsamında dönüş', not: `Dönüş dönemi: ${kayit}. Süreler ve uygulanacak hükümler enstitü kararına göre; panel ders ve tez koşullarını yönetmeliğe göre izler.`, id: uygun?.id };
+  if (tur === 'af') { const f = afSure({ kayit }, K()); return { ad: `${uygun?.ad || AYAR.yonetmelik.ad} (af ile dönüş)`, not: `Dönüş dönemi: ${kayit}. Tez aşamasında döndüğü için akademik faaliyet (yayın) şartı aranmaz.${f ? ` Süre: ${f.toplam} yarıyıl, ${f.bitis} sonuna (${f.ay}) kadar.` : ''}`, id: uygun?.id }; }
   if (uygun) return { ad: uygun.ad, not: '', id: uygun.id };
   if (tur !== 'af' && sira(kayit) >= sira(AYAR.yonetmelik.ilkDonem)) return { ad: AYAR.yonetmelik.ad, not: '' };
   if (kayit >= '2026-2027') return { ad: '28/6/2026 tarihli yönetmelik', not: '' };
@@ -98,7 +98,7 @@ function hesapla(s, pw) {
     if (c.tur === 'uad') uad += w;
   }
   const uadHedef = Math.max(1, Math.max(K().normalSure, s.donem) - s.danismanDonem + 1);
-  const grupDeger = g => { const it = ADIMLAR.find(x => x.grup === g).items; return it.reduce((a, i) => a + i.w * adimDeger(s, i.k, pw), 0) / it.reduce((a, i) => a + i.w, 0); };
+  const grupDeger = g => { const it = ADIMLAR.find(x => x.grup === g).items.filter(i => adimGerekli(s.kayitTuru, i.k)); return it.reduce((a, i) => a + i.w * adimDeger(s, i.k, pw), 0) / it.reduce((a, i) => a + i.w, 0); };
   out.kayit = 1;
   out.dersler = (Math.min(1, kredi / K().krediMin) + Math.min(1, ders / K().dersMin)) / 2;
   out.zorunlu = (bay + etik) / 2;
@@ -184,7 +184,7 @@ function siradaki(s) {
   if (a.bay < 1 || a.etik < 1) return { b: 'Yöntem ve etik dersleri', t: 'Bilimsel Araştırma Yöntemleri ve araştırma/yayın etiği dersi zorunlu. Kredi sayısına girmez ama mezuniyet için gerekli.', sec: 'dersler' };
   if (a.sem < 1) return { b: 'Seminer', t: `Seminer dersini tamamladığında ders dönemi bitiyor. ${K().normalSure}. yarıyıl sonuna kadar tamamlanmalı.`, sec: 'dersler' };
   for (const g of ADIMLAR) for (const i of g.items) {
-    if (s.adim[i.k] === 'tamam' || s.adim[i.k] === 'onay') continue;
+    if (s.adim[i.k] === 'tamam' || s.adim[i.k] === 'onay' || !adimGerekli(s.kayitTuru, i.k)) continue;
     return { b: i.ad, t: (i.by === 'danisman' ? 'Bu adımı danışmanın işaretleyecek. ' : '') + (i.not || 'Tamamladığında işaretle; danışmanın onaylayınca çubuk dolar.'), sec: 'tez' };
   }
   return { b: 'Onay bekleyen adımlar', t: 'Gönderdiğin adımlar danışmanında. Onaylandıkça çubuk tamamen dolacak.', sec: 'tez' };
@@ -201,19 +201,21 @@ function kontroller(s) {
   L.push({ ad: `En az ${K().aktsMin} AKTS`, ref: 'M19/3 · yılda 60 AKTS', val: `${fmt(a.akts)} / ${K().aktsMin}`, d: st3(a.akts >= K().aktsMin, b.akts > 0) });
   L.push({ ad: `Her dersin notu en az ${K().gecmeNotu}`, ref: 'M16/3', val: '', d: s.dersler.some(r => r.durum !== 'aliyor' && !gecti(r, kat(s, r.kod))) ? 'surec' : (s.dersler.length ? 'tamam' : 'bekliyor') });
   L.push({ ad: `En fazla ${K().lisansDersMax} lisans dersi, en fazla ${K().disDersMax} başka üniversite dersi`, ref: 'M19/4', val: `${a.lisans} · ${a.dis}`, d: a.lisans <= K().lisansDersMax && a.dis <= K().disDersMax ? 'tamam' : 'surec' });
-  const konu = s.adim.konu === 'tamam';
-  L.push({ ad: `Tez konusu en geç ${K().konuSonYariyil}. yarıyıl sonunda`, ref: 'M22/1', val: konu ? 'Tamam' : `${s.donem}. yarıyıl`, d: konu ? 'tamam' : s.adim.konu === 'onay' ? 'surec' : 'bekliyor' });
-  L.push({ ad: 'Akademik faaliyet şartı', ref: 'M23/1 · Senato esasları eklenecek', val: '', d: st3(s.adim.faaliyet === 'tamam', s.adim.faaliyet === 'onay') });
+  const konu = s.adim.konu === 'tamam', af = s.kayitTuru === 'af';
+  L.push({ ad: af ? 'Tez konusu' : `Tez konusu en geç ${K().konuSonYariyil}. yarıyıl sonunda`, ref: af ? 'M22/1 · af ile dönüş: süre içinde' : 'M22/1', val: konu ? 'Tamam' : af ? '' : `${s.donem}. yarıyıl`, d: konu ? 'tamam' : s.adim.konu === 'onay' ? 'surec' : 'bekliyor' });
+  if (af) L.push({ ad: 'Akademik faaliyet şartı', ref: 'Af ile dönüş · tez aşamasında olduğu için aranmaz', val: 'Aranmaz', d: 'tamam' });
+  else L.push({ ad: 'Akademik faaliyet şartı', ref: 'M23/1 · geçici: TR Dizin makale, bildiri ya da kitap bölümü', val: '', d: st3(s.adim.faaliyet === 'tamam', s.adim.faaliyet === 'onay') });
   L.push({ ad: 'Tez savunmasında kabul', ref: 'M23/6', val: '', d: st3(s.adim.savunma === 'tamam', false) });
   L.push({ ad: `Genel not ortalaması en az ${K().gnoMin}`, ref: 'M23/10', val: a.gno ? fmt(a.gno) : '—', d: a.gno == null ? 'bekliyor' : a.gno >= K().gnoMin && a.ders >= K().dersMin ? 'tamam' : 'surec' });
   L.push({ ad: `Ciltli tez (en az 3 kopya) ${K().ciltliGun} gün içinde`, ref: 'M23/10', val: '', d: st3(s.adim.ciltli === 'tamam', s.adim.ciltli === 'onay') });
-  if (s.kayitTuru === 'af') L.push({ ad: 'Süre', ref: 'Af kapsamında dönüş · süre enstitü kararına göre', val: `${s.donem}. yarıyıl`, d: 'surec' });
+  if (s.kayitTuru === 'af') { const f = afSure(s, K()); L.push({ ad: 'Süre', ref: f ? `Af ile dönüş · ${f.toplam} yarıyıl, ${f.bitis} sonuna (${f.ay}) kadar` : 'Af ile dönüş', val: f ? (f.kalan > 0 ? `${f.kalan} yarıyıl kaldı` : 'Süre doldu') : '', d: f && f.kalan <= 0 ? 'bekliyor' : 'surec' }); }
   else L.push({ ad: 'Süre', ref: `Normal ${K().normalSure}, en çok ${K().azamiSure} yarıyıl · erken mezuniyet en az 3 yarıyıl (M21)`, val: `${s.donem}. yarıyıl`, d: s.donem <= K().normalSure ? 'tamam' : 'surec' });
   return L;
 }
 function hatirlatmalar(s) {
   const a = hesapla(s, 0), L = [];
-  if (s.donem >= K().konuSonYariyil && s.adim.konu !== 'tamam') L.push(`Tez konusu ${K().konuSonYariyil}. yarıyıl sonuna kadar belirlenmeli.`);
+  if (s.kayitTuru === 'af') { const f = afSure(s, K()); if (f) L.push(f.kalan > 0 ? `Kalan süre: ${f.bitis} sonuna (${f.ay}) kadar, bu dönem dahil ${f.kalan} yarıyıl.` : `Af kapsamındaki süre ${f.bitis} sonunda doldu.`); }
+  else if (s.donem >= K().konuSonYariyil && s.adim.konu !== 'tamam') L.push(`Tez konusu ${K().konuSonYariyil}. yarıyıl sonuna kadar belirlenmeli.`);
   if (s.kayitTuru !== 'af' && s.donem >= K().normalSure && (a.ders < K().dersMin || a.kredi < K().krediMin || a.sem < 1)) L.push(`${K().normalSure}. yarıyıl sonunda kredili dersler ve seminer tamamlanmış olmalı.`);
   if (s.kayitTuru !== 'af' && s.donem > K().normalSure) L.push(`Azami süre: ${Math.max(0, K().azamiSure - s.donem + 1)} yarıyıl kaldı.`);
   for (const g of (s.gorusmeler || []).filter(g => g.durum === 'planli' && (g.tarih || '').slice(0, 10) >= bugunIso())) L.push(`Görüşme: ${zamanFmt(g.tarih)}${g.bicim === 'cevrimici' ? ' (çevrim içi)' : ''}.`);
@@ -467,7 +469,7 @@ function kisiselHTML(s) {
     <div class="grid2" style="gap:14px">
       ${f('k-ad', 'Ad soyad', ilk && s.ad === s.eposta.split('@')[0] ? '' : s.ad)}${f('k-no', 'Öğrenci numarası', s.no)}
       ${f('k-eposta', 'E-posta (giriş adresi)', s.eposta, 'email', !adv)}
-      ${sel('k-tur', 'Kayıt türü', [['normal', 'Normal kayıt'], ['af', 'Af ile dönen öğrenci']], s.kayitTuru)}
+      ${sel('k-tur', 'Kayıt türü', [['normal', 'Normal kayıt'], ['af', 'Af ile dönen öğrenci']], s.kayitTuru, !adv)}
       ${sel('k-kayit', s.kayitTuru === 'af' ? 'Dönüş dönemi' : 'Kayıt dönemi', KAYIT_DONEMLERI.map(x => [x, x]), s.kayit)}
       ${sel('k-program', 'Program', Object.entries(PROGRAMS).map(([k, v]) => [k, v.ad]), s.program)}
       ${f('k-abd', 'Anabilim dalı', P.abd, 'text', true)}
@@ -579,6 +581,7 @@ function programDersleriHTML(s, adv) {
 function tezHTML(s) {
   const adv = isAdv();
   const adimRow = i => {
+    if (!adimGerekli(s.kayitTuru, i.k)) return `<div class="step"><span class="ck">–</span><div><div class="row" style="gap:8px"><b style="font-weight:600">${esc(i.ad)}</b><span class="pill off">Aranmaz</span></div><div class="note">Af ile dönüş: tez aşamasında döndüğün için bu şart aranmıyor.</div></div><div class="row"></div></div>`;
     const d = s.adim[i.k] || '';
     const ck = d === 'tamam' ? '✓' : d === 'onay' ? '…' : '';
     let act = '';
@@ -892,6 +895,7 @@ const KURAL_ETIKET = [
   ['normalSure', 'Normal süre (yarıyıl)', 'M21'], ['azamiSure', 'Azami süre (yarıyıl)', 'M21'],
   ['konuSonYariyil', 'Tez konusu en geç kaçıncı yarıyıl sonunda', 'M22'], ['ciltliGun', 'Savunmadan sonra ciltli teslim süresi (gün)', 'M23/10'],
   ['lisansDersMax', 'En fazla lisans dersi', 'M19/4'], ['disDersMax', 'En fazla başka üniversite dersi', 'M19/4'],
+  ['afSure', 'Af ile dönenlerin süresi (dönüşten itibaren yarıyıl)', 'Af'],
 ];
 function ayarlarHTML() {
   const a = AYAR, V = S.varsayilan;
@@ -924,7 +928,7 @@ function ayarlarHTML() {
     ${S.kuralUyari ? `<div class="celebrate" style="text-align:left;background:var(--sun-soft);color:var(--ink)">Yeni yönetmelik yüklendi. Aşağıdaki sayısal koşulları yeni yönetmelikle karşılaştırın; değişen varsa güncelleyip "Ayarları kaydet"e basın.</div>` : ''}
     <div class="grid3">${KURAL_ETIKET.map(([k, e, m]) => inp(`kural.${k}`, e, a.kural[k], `${m}${V && V.kural[k] !== a.kural[k] ? ` · varsayılan: ${V.kural[k]}` : ''}`, 'number')).join('')}</div></section>
   <section class="panel"><h2>Açıklama metinleri</h2>
-    <div class="field"><label for="ay-metin.faaliyet">Akademik faaliyet şartı (Senato esasları)</label><textarea class="input" id="ay-metin.faaliyet" data-ayar="metin.faaliyet" rows="3">${esc(a.metin.faaliyet)}</textarea><span class="muted" style="font-size:12px">Öğrencilerin "Tez süreci"nde "Akademik faaliyet şartı" adımının altında görünür.</span></div></section>
+    <div class="field"><label for="ay-metin.faaliyet">Akademik faaliyet şartı (Senato esasları gelene kadar geçici ölçüt)</label><textarea class="input" id="ay-metin.faaliyet" data-ayar="metin.faaliyet" rows="3">${esc(a.metin.faaliyet)}</textarea><span class="muted" style="font-size:12px">Öğrencilerin "Tez süreci"nde "Akademik faaliyet şartı" adımının altında görünür.</span></div></section>
   <div class="row kaydet-bar"><button class="btn primary" data-a="ayar-kaydet">Ayarları kaydet</button><span class="muted" style="font-size:13px">Müfredattaki ders listesinde değişiklik olursa bana iletin; dersler bu sayfadan değil, programın ders listesinden güncellenir.</span></div>`;
 }
 function hatirlatmaHTML() {
@@ -1078,12 +1082,15 @@ function riskler(s) {
   const R = [], k = K(), a = hesapla(s, 0);
   if (s.davetBekliyor) R.push({ lv: 0, t: 'Davet bekliyor (henüz şifre belirlemedi)' });
   else if (!s.profilTamam) R.push({ lv: 0, t: 'Kişisel bilgilerini henüz tamamlamadı' });
-  if (s.kayitTuru !== 'af') {
+  if (s.kayitTuru === 'af') {
+    const f = afSure(s, k);
+    if (f) R.push(f.kalan <= 0 ? { lv: 2, t: 'Af kapsamındaki süre doldu' } : f.kalan === 1 ? { lv: 1, t: `Af süresinin son yarıyılı (${f.ay})` } : { lv: 0, t: `Af ile dönüş · ${f.ay}'e kadar ${f.kalan} yarıyıl` });
+  } else {
     const kalan = k.azamiSure - s.donem + 1;
     if (kalan <= 1) R.push({ lv: 2, t: kalan === 1 ? 'Azami sürenin son yarıyılı' : 'Azami süre aşıldı' });
     else if (s.donem > k.normalSure) R.push({ lv: 1, t: `Normal süre aşıldı · azami süreye ${kalan} yarıyıl` });
   }
-  if (!['tamam', 'onay'].includes(s.adim.konu)) {
+  if (s.kayitTuru !== 'af' && !['tamam', 'onay'].includes(s.adim.konu)) {
     if (s.donem > k.konuSonYariyil) R.push({ lv: 2, t: 'Tez konusu gecikti' });
     else if (s.donem === k.konuSonYariyil) R.push({ lv: 1, t: 'Tez konusu bu yarıyıl belirlenmeli' });
   }
