@@ -45,7 +45,9 @@ async function ensureSchema(env) {
   if (schemaReady) return;
   await env.DB.batch(SCHEMA.map(s => env.DB.prepare(s)));
   // Sonradan eklenen sütunlar (varsa hata verir, yok sayılır)
-  for (const sql of [`ALTER TABLE students ADD COLUMN kayit_turu TEXT NOT NULL DEFAULT 'normal'`, `ALTER TABLE students ADD COLUMN profil_tamam INTEGER NOT NULL DEFAULT 1`, `ALTER TABLE students ADD COLUMN foto_v INTEGER NOT NULL DEFAULT 0`, `ALTER TABLE files ADD COLUMN aciklama TEXT`]) {
+  for (const sql of [`ALTER TABLE students ADD COLUMN kayit_turu TEXT NOT NULL DEFAULT 'normal'`, `ALTER TABLE students ADD COLUMN profil_tamam INTEGER NOT NULL DEFAULT 1`, `ALTER TABLE students ADD COLUMN foto_v INTEGER NOT NULL DEFAULT 0`, `ALTER TABLE files ADD COLUMN aciklama TEXT`,
+    // Okundu bilgisi: eski mesajlar okunmuş sayılır (varsayılan 1); yeni mesajlar 0 ile eklenir
+    `ALTER TABLE messages ADD COLUMN okundu INTEGER NOT NULL DEFAULT 1`]) {
     try { await env.DB.prepare(sql).run(); } catch {}
   }
   schemaReady = true;
@@ -151,13 +153,14 @@ const gorusmeJson = (r, adv) => ({
   konusulanlar: r.konusulanlar || '', kararlar: r.kararlar || '', gorev: r.gorev || '', gorevTarih: r.gorev_tarih || '', gorevTamam: !!r.gorev_tamam,
   iptalNotu: r.iptal_notu || '', olusturma: r.created_at, guncelleme: r.updated_at || r.created_at, ...(adv ? { ozel: r.ozel || '' } : {}),
 });
+const mesajJson = r => ({ id: r.id, kimden: r.kimden, m: r.metin, t: r.created_at, okundu: r.okundu !== 0 });
 async function loadStudent(env, id, ayar, adv = false) {
   const s = await env.DB.prepare(`SELECT u.id, u.email, u.ad, u.pass_hash, st.* FROM users u JOIN students st ON st.user_id = u.id WHERE u.id = ?`).bind(id).first();
   if (!s) return null;
   const [c, f, m, y, g, son, dv] = await env.DB.batch([
     env.DB.prepare(`SELECT * FROM courses WHERE student_id = ? ORDER BY donem, id`).bind(id),
     env.DB.prepare(`SELECT id, v, ad, boyut, tur, created_at, aciklama FROM files WHERE student_id = ? ORDER BY v DESC`).bind(id),
-    env.DB.prepare(`SELECT kimden, metin, created_at FROM messages WHERE student_id = ? ORDER BY id`).bind(id),
+    env.DB.prepare(`SELECT id, kimden, metin, created_at, okundu FROM messages WHERE student_id = ? ORDER BY id`).bind(id),
     env.DB.prepare(`SELECT id, file_id, kimden, metin, ek_ad, ek_boyut, created_at FROM file_comments WHERE student_id = ? ORDER BY id`).bind(id),
     env.DB.prepare(`SELECT * FROM meetings WHERE student_id = ? ORDER BY COALESCE(tarih, created_at) DESC, id DESC`).bind(id),
     env.DB.prepare(SON_ETKINLIK_SQL).bind(id),
@@ -177,7 +180,7 @@ async function loadStudent(env, id, ayar, adv = false) {
     adim: parse(s.adim, {}), adimTarih,
     dersler: c.results.map(r => ({ id: r.id, kod: r.kod, donem: r.donem, durum: r.durum, not: r.notu, final: r.final, sonuc: r.sonuc, kaynak: r.kaynak })),
     dosyalar: f.results.map(r => ({ id: r.id, v: r.v, ad: r.ad, boyut: r.boyut, tarih: r.created_at, aciklama: r.aciklama || '', yorumlar: yorumlar[r.id] || [] })),
-    mesajlar: m.results.map(r => ({ kimden: r.kimden, m: r.metin, t: r.created_at })),
+    mesajlar: m.results.map(mesajJson),
     gorusmeler: g.results.map(r => gorusmeJson(r, adv)),
     sonEtkinlik,
   };
@@ -612,7 +615,7 @@ async function route(req, env, ctx, url) {
           const not = str(b.not, 1000);
           await env.DB.batch([
             env.DB.prepare(`UPDATE courses SET durum='duzeltme', updated_at=? WHERE id=?`).bind(now(), cid),
-            env.DB.prepare(`INSERT INTO messages (student_id, kimden, metin, created_at) VALUES (?,?,?,?)`).bind(sid, 'danisman', `Düzeltme istendi: ${c.kod} ${c.ad}${not ? ' — ' + not : ''}`, now()),
+            env.DB.prepare(`INSERT INTO messages (student_id, kimden, metin, created_at, okundu) VALUES (?,?,?,?,0)`).bind(sid, 'danisman', `Düzeltme istendi: ${c.kod} ${c.ad}${not ? ' — ' + not : ''}`, now()),
           ]);
           notify(ctx, env, s.email, `Düzeltme istendi: ${c.ad}`, `Merhaba ${s.ad},\n\n${c.kod} ${c.ad} dersi için danışmanın düzeltme istedi.${not ? '\n\nNot: ' + not : ''}`);
         } else if (b.islem === 'geri') {
@@ -667,7 +670,7 @@ async function route(req, env, ctx, url) {
       } else fail(400, 'Bilinmeyen işlem.');
     }
     const st = [env.DB.prepare(`UPDATE students SET adim = ?, adim_tarih = ? WHERE user_id = ?`).bind(JSON.stringify(adim), JSON.stringify(tarih), sid)];
-    if (mesaj) st.push(env.DB.prepare(`INSERT INTO messages (student_id, kimden, metin, created_at) VALUES (?,?,?,?)`).bind(sid, 'danisman', mesaj, now()));
+    if (mesaj) st.push(env.DB.prepare(`INSERT INTO messages (student_id, kimden, metin, created_at, okundu) VALUES (?,?,?,?,0)`).bind(sid, 'danisman', mesaj, now()));
     await env.DB.batch(st);
     await log(env, sid, user.id, 'adim-' + b.islem, k);
     return json({ ok: true });
@@ -678,10 +681,25 @@ async function route(req, env, ctx, url) {
     const sid = m[1]; const s = await studentOr404(env, user, sid);
     const b = await body(req); const metin = str(b.metin, 4000);
     if (!metin) fail(400, 'Boş not gönderilemez.');
-    await env.DB.prepare(`INSERT INTO messages (student_id, kimden, metin, created_at) VALUES (?,?,?,?)`).bind(sid, isAdv ? 'danisman' : 'ogrenci', metin, now()).run();
+    await env.DB.prepare(`INSERT INTO messages (student_id, kimden, metin, created_at, okundu) VALUES (?,?,?,?,0)`).bind(sid, isAdv ? 'danisman' : 'ogrenci', metin, now()).run();
     if (isAdv) notify(ctx, env, s.email, 'Danışmanından yeni not', `Merhaba ${s.ad},\n\nDanışmanın panelde sana bir not yazdı:\n\n${metin}`);
     else notify(ctx, env, advisorEmail(env), `${s.ad}: yeni not`, `${s.ad} panelde bir not bıraktı:\n\n${metin}`);
     return json({ ok: true });
+  }
+
+  // Karşı taraftan gelen mesajları okundu işaretle (yazışma açıldığında)
+  if ((m = p.match(/^\/api\/ogrenciler\/([\w-]+)\/mesajlar\/okundu$/)) && M === 'POST') {
+    const sid = m[1]; await studentOr404(env, user, sid);
+    await env.DB.prepare(`UPDATE messages SET okundu = 1 WHERE student_id = ? AND kimden != ? AND okundu = 0`).bind(sid, isAdv ? 'danisman' : 'ogrenci').run();
+    return json({ ok: true });
+  }
+  // Son bilinen mesajdan sonra gelenler (danışman: tüm öğrenciler, öğrenci: kendisi); arayüz kısa aralıklarla yoklar
+  if (p === '/api/mesajlar' && M === 'GET') {
+    const son = intIn(url.searchParams.get('son'), 0, Number.MAX_SAFE_INTEGER) ?? 0;
+    const q = isAdv
+      ? env.DB.prepare(`SELECT id, student_id, kimden, metin, created_at, okundu FROM messages WHERE id > ? ORDER BY id LIMIT 200`).bind(son)
+      : env.DB.prepare(`SELECT id, student_id, kimden, metin, created_at, okundu FROM messages WHERE id > ? AND student_id = ? ORDER BY id LIMIT 200`).bind(son, user.id);
+    return json({ mesajlar: (await q.all()).results.map(r => ({ sid: r.student_id, ...mesajJson(r) })) });
   }
 
   /* ---- Tez dosyaları ---- */

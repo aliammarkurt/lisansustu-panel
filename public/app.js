@@ -287,6 +287,7 @@ const ICON = {
   ogrenciler: '<circle cx="9" cy="8" r="3.5"/><path d="M2 20c1-3.5 3.8-5 7-5s6 1.5 7 5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 15c2 .6 3.4 2.2 4 5"/>',
   onaylar: '<path d="M4 12l5 5L20 6"/>',
   ayarlar: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 010 4h-.1a1.7 1.7 0 00-1.5 1z"/>',
+  mesajlar: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/>',
   hatirlatma: '<path d="M6 16V11a6 6 0 0112 0v5l2 2H4z"/><path d="M10 20a2 2 0 004 0"/>',
   hesap: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
@@ -370,15 +371,17 @@ function render() {
   if (S.ekran === 'unuttum') { root.innerHTML = unuttumHTML(); return; }
   if (S.ekran === 'token') { root.innerHTML = tokenHTML(); return; }
   if (S.ekran === 'kurulum') { root.innerHTML = kurulumHTML(); return; }
+  okunduIsaretle();
   const adv = isAdv(), s = cur(), bek = adv ? bekleyenler() : [];
   let nav = '';
   if (adv) {
-    nav += `<div class="grp eyebrow">Danışman</div>` + navi('ogrenciler', 'Öğrencilerim') + navi('onaylar', 'Onay bekleyenler', bek.length) + navi('hatirlatma', 'Hatırlatmalar') + navi('ayarlar', 'Ayarlar');
-    if (s) nav += `<div class="grp eyebrow">${esc(s.ad)}</div>` + OGR_MENU.map(([k, t]) => navi(k, t, k === 'gorusmeler' ? s.gorusmeler.filter(g => g.durum === 'talep').length : 0)).join('');
+    const okn = S.students.filter(x => !x.arsiv).reduce((t, x) => t + okunmamis(x), 0);
+    nav += `<div class="grp eyebrow">Danışman</div>` + navi('ogrenciler', 'Öğrencilerim') + navi('mesajlar', 'Mesajlar', okn) + navi('onaylar', 'Onay bekleyenler', bek.length) + navi('hatirlatma', 'Hatırlatmalar') + navi('ayarlar', 'Ayarlar');
+    if (s) nav += `<div class="grp eyebrow">${esc(s.ad)}</div>` + OGR_MENU.map(([k, t]) => navi(k, t, k === 'gorusmeler' ? s.gorusmeler.filter(g => g.durum === 'talep').length : k === 'notlar' ? okunmamis(s) : 0)).join('');
   } else if (s) {
     const n = Object.values(s.adim).filter(x => x === 'onay').length;
     const g = acikGorevler(s).length + s.gorusmeler.filter(x => x.durum === 'planli' && (x.tarih || '').slice(0, 10) >= bugunIso()).length;
-    nav += OGR_MENU.map(([k, t]) => navi(k, t, k === 'tez' ? n : k === 'gorusmeler' ? g : 0)).join('');
+    nav += OGR_MENU.map(([k, t]) => navi(k, t, k === 'tez' ? n : k === 'gorusmeler' ? g : k === 'notlar' ? okunmamis(s) : 0)).join('');
   }
   nav += `<div style="margin-top:auto"></div>` + navi('hesap', 'Hesabım') + `<button class="navi" data-a="cikis">${ic('cikis')}<span class="t">Çıkış</span></button><div class="side-telif t">© ${TELIF.yil} ${esc(TELIF.gelistiren)}<br>Tüm hakları saklıdır.</div>`;
   root.innerHTML = `
@@ -403,6 +406,7 @@ function anaIcerik() {
   if (S.section === 'hesap') return hesapHTML();
   if (adv && S.section === 'ogrenciler') return ogrencilerHTML();
   if (adv && S.section === 'onaylar') return onaylarHTML();
+  if (adv && S.section === 'mesajlar') return mesajlarHTML();
   if (adv && S.section === 'hatirlatma') return hatirlatmaHTML();
   if (adv && S.section === 'ayarlar') return ayarlarHTML();
   const s = cur();
@@ -664,14 +668,91 @@ function mezuniyetHTML(s) {
     <div class="checks">${L.map(x => `<div class="chk ${x.d}"><span class="ic">${icn[x.d]}</span><div>${esc(x.ad)}<div class="ref">${esc(x.ref)}</div></div><span class="val">${esc(x.val)}</span></div>`).join('')}</div>
   </section>`;
 }
+/* ======================== MESAJLAR ======================== */
+const benKim = () => isAdv() ? 'danisman' : 'ogrenci';
+// Karşı taraftan gelen, henüz okunmamış mesaj sayısı
+const okunmamis = s => (s?.mesajlar || []).filter(m => m.kimden !== benKim() && !m.okundu).length;
+// Ekranda açık olan yazışma (öğrencinin "yazışma" bölümü ya da danışmanın Mesajlar sayfası)
+function acikYazisma() {
+  if (S.ekran !== 'uygulama') return null;
+  if (S.section === 'notlar') return cur();
+  if (isAdv() && S.section === 'mesajlar') return mesajSecili();
+  return null;
+}
+// Açık yazışmadaki yeni mesajları okundu say; bu görünümde "yeni" etiketiyle gösterilmeye devam eder
+function okunduIsaretle() {
+  const s = acikYazisma(), anahtar = s ? `${S.section}|${s.id}` : null;
+  if (S.yeniAnahtar !== anahtar) { S.yeniAnahtar = anahtar; S.yeniIds = new Set(); }
+  if (!s) return;
+  const L = s.mesajlar.filter(m => m.kimden !== benKim() && !m.okundu);
+  if (!L.length) return;
+  L.forEach(m => { m.okundu = true; S.yeniIds.add(m.id); });
+  api(`/ogrenciler/${s.id}/mesajlar/okundu`, { method: 'POST', body: {} }).catch(() => {});
+}
+function threadHTML(s) {
+  const me = benKim();
+  return `<div class="thread">${s.mesajlar.map(m => `<div class="msg ${m.kimden === me ? 'me' : ''} ${S.yeniIds?.has(m.id) ? 'yeni' : ''}"><div class="m">${m.kimden === 'danisman' ? 'Danışman' : esc(s.ad)} · ${esc(tarihFmt(m.t))}${S.yeniIds?.has(m.id) ? ' <span class="pill go">Yeni</span>' : ''}</div>${esc(m.m).replace(/\n/g, '<br>')}</div>`).join('') || '<p class="muted" style="margin:0">Henüz mesaj yok.</p>'}</div>`;
+}
+const yanitKutusu = (s, ph) => `<div class="field"><label for="msg-in">Yeni mesaj</label><textarea class="input" id="msg-in" rows="3" placeholder="${esc(ph)}">${esc(S.taslak?.[s.id] || '')}</textarea></div>
+    <div class="row"><button class="btn primary" data-a="mesaj" data-s="${s.id}" ${S.mesgul ? 'disabled' : ''}>Gönder</button><span class="muted" style="font-size:13px">${isAdv() ? 'Mesaj öğrencinin yazışma bölümüne düşer ve ona e-posta bildirimi gider.' : 'Danışmanına e-posta bildirimi gider.'}</span></div>`;
 function notlarHTML(s) {
-  const me = isAdv() ? 'danisman' : 'ogrenci';
+  const me = benKim();
   return `<section class="panel"><h2>${me === 'ogrenci' ? 'Danışmanla yazışma' : 'Öğrenciyle yazışma'}</h2>
-    <div class="thread">${s.mesajlar.map(m => `<div class="msg ${m.kimden === me ? 'me' : ''}"><div class="m">${m.kimden === 'danisman' ? 'Danışman' : esc(s.ad)} · ${esc(tarihFmt(m.t))}</div>${esc(m.m).replace(/\n/g, '<br>')}</div>`).join('') || '<p class="muted">Henüz mesaj yok.</p>'}</div>
-    <div class="field"><label for="msg-in">Yeni not</label><textarea class="input" id="msg-in" rows="3" placeholder="${me === 'ogrenci' ? 'Danışmanına bir not bırak' : 'Öğrenciye not yaz'}"></textarea></div>
-    <div class="row"><button class="btn primary" data-a="mesaj">Gönder</button><span class="muted" style="font-size:13px">Karşı tarafa e-posta bildirimi gider.</span></div>
+    ${threadHTML(s)}
+    ${yanitKutusu(s, me === 'ogrenci' ? 'Danışmanına bir mesaj yaz' : 'Öğrenciye mesaj yaz')}
   </section>`;
 }
+const sonMesaj = s => s.mesajlar[s.mesajlar.length - 1];
+// Mesajlar sayfasındaki sıra: okunmamışı olanlar, sonra son mesaja göre, en sonda hiç yazışmamış olanlar (ada göre)
+function yazismaListesi() {
+  return S.students.filter(x => !x.arsiv || x.mesajlar.length).sort((a, b) =>
+    (okunmamis(b) > 0) - (okunmamis(a) > 0)
+    || (sonMesaj(b)?.t || '').localeCompare(sonMesaj(a)?.t || '')
+    || a.ad.localeCompare(b.ad, 'tr'));
+}
+function mesajSecili() {
+  let s = S.mesajSecili && st(S.mesajSecili);
+  if (!s) { s = yazismaListesi()[0] || null; S.mesajSecili = s?.id || null; }
+  return s;
+}
+function mesajlarHTML() {
+  const L = yazismaListesi(), s = mesajSecili();
+  const kisi = x => {
+    const n = okunmamis(x), son = sonMesaj(x);
+    return `<button class="mkisi ${x.id === s?.id ? 'on' : ''} ${n ? 'okunmadi' : ''}" data-a="mesaj-sec" data-s="${x.id}">${avatar(x, 32)}
+      <span class="mk-govde"><span class="mk-ust"><b>${esc(x.ad)}</b>${son ? `<span class="muted mono">${esc(tarihFmt(son.t))}</span>` : ''}</span>
+      <span class="muted mk-son">${son ? `${son.kimden === 'danisman' ? 'Siz: ' : ''}${esc(son.m.slice(0, 80))}` : 'Henüz mesaj yok'}</span></span>${n ? `<span class="badge">${n}</span>` : ''}</button>`;
+  };
+  return `<div><span class="eyebrow">Danışman paneli</span><h1 style="font-size:30px;margin-top:4px">Mesajlar</h1>
+    <p class="muted" style="margin:6px 0 0">Öğrencilerin "Danışmanla yazışma" bölümünden yazdıkları burada toplanır. Buradan yazdığınız yanıt öğrencinin yazışma bölümüne düşer.</p></div>
+  <div class="mkutu">
+    <section class="panel mliste" aria-label="Yazışmalar">${L.map(kisi).join('') || '<p class="muted" style="margin:0">Henüz öğrenci yok.</p>'}</section>
+    ${s ? `<section class="panel"><div class="row" style="justify-content:space-between"><h2 style="margin:0">${esc(s.ad)}</h2><button class="btn small" data-a="ac" data-s="${s.id}" data-k="genel">Öğrencinin paneli</button></div>
+      ${threadHTML(s)}
+      ${yanitKutusu(s, `${s.ad.split(' ')[0]} için yanıt yaz`)}</section>` : ''}
+  </div>`;
+}
+// Yeni mesajları kısa aralıklarla yokla (sayfa açıkken)
+async function mesajYokla() {
+  if (S.ekran !== 'uygulama' || document.visibilityState !== 'visible' || S.yoklaniyor) return;
+  S.yoklaniyor = true;
+  try {
+    const son = Math.max(0, ...S.students.flatMap(x => x.mesajlar.map(m => m.id || 0)));
+    const d = await api('/mesajlar?son=' + son);
+    let yeni = false;
+    for (const m of d.mesajlar) {
+      const x = st(m.sid); if (!x || x.mesajlar.some(y => y.id === m.id)) continue;
+      x.mesajlar.push({ id: m.id, kimden: m.kimden, m: m.m, t: m.t, okundu: m.okundu }); yeni = true;
+    }
+    if (!yeni) return;
+    // Yazılmakta olan bir metin varsa ekranı yenileme; yazı silinmesin
+    const a = document.activeElement;
+    if (a && ['TEXTAREA', 'INPUT'].includes(a.tagName) && a.value) { S.yenileBekliyor = true; return; }
+    render();
+  } catch {} finally { S.yoklaniyor = false; }
+}
+setInterval(() => { if (S.yenileBekliyor && !document.activeElement?.value) { S.yenileBekliyor = false; render(); } else mesajYokla(); }, 45000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') mesajYokla(); });
 function hesapHTML() {
   return `<section class="panel" style="max-width:520px"><h2>Hesabım</h2>
     <p class="muted" style="margin:0">${esc(S.ben.ad)} · ${esc(S.ben.email)}</p>
@@ -1358,8 +1439,12 @@ document.addEventListener('click', async e => {
         break; }
       case 'mesaj': {
         const v = val('msg-in').trim(); if (!v) return;
-        await api(`/ogrenciler/${s.id}/mesajlar`, { method: 'POST', body: { metin: v } }); await yenile(s.id); toast('Not gönderildi', mailNot());
+        // Gönderim başarısız olursa yazılan metin kaybolmasın
+        (S.taslak ||= {})[s.id] = v; S.mesgul = true; render();
+        try { await api(`/ogrenciler/${s.id}/mesajlar`, { method: 'POST', body: { metin: v } }); delete S.taslak[s.id]; await yenile(s.id); toast('Mesaj gönderildi', mailNot()); }
+        finally { S.mesgul = false; }
         break; }
+      case 'mesaj-sec': S.mesajSecili = el.dataset.s; if (innerWidth <= 760) requestAnimationFrame(() => document.getElementById('msg-in')?.scrollIntoView({ block: 'center' })); break;
       case 'belge': S.modal = { id: el.dataset.id }; S.gecici = {}; renderModal(); return;
       case 'word': await wordIndir(el.dataset.id, +(el.dataset.k || 0)); toast('Word dosyası indirildi', 'İmza, karar ve sayı alanlarını ilgili kişiler dolduracak.'); return;
       case 'kapat': case 'kapat-bg': S.modal = null; S.gecici = null; renderModal(); return;

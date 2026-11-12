@@ -193,6 +193,19 @@ td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-align:ri
 .msg{max-width:78%;padding:10px 12px;border-radius:12px;background:var(--surface-2);font-size:14.5px}
 .msg.me{justify-self:end;background:var(--accent-soft)}
 .msg .m{font-size:12px;color:var(--muted);margin-bottom:2px}
+.msg.yeni{box-shadow:inset 3px 0 0 var(--sun)}
+.mkutu{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
+.mliste{padding:8px;gap:2px;max-height:72vh;overflow:auto}
+.mkisi{display:flex;gap:10px;align-items:center;width:100%;text-align:left;border:0;background:none;border-radius:10px;padding:9px 8px;color:var(--ink);font:inherit;cursor:pointer}
+.mkisi:hover{background:var(--surface-2)}
+.mkisi.on{background:var(--accent-soft)}
+.mk-govde{display:grid;gap:2px;min-width:0;flex:1}
+.mk-ust{display:flex;gap:8px;justify-content:space-between;align-items:baseline}
+.mk-ust b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mk-ust .mono{font-size:11.5px;flex:none}
+.mkisi.okunmadi .mk-ust b{font-weight:700}
+.mk-son{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:760px){.mkutu{grid-template-columns:minmax(0,1fr)}.mliste{max-height:42vh}}
 
 /* Modal ve form önizleme */
 .modal{position:fixed;inset:0;background:rgba(5,14,20,.55);display:grid;place-items:center;z-index:50;padding:24px max(16px,env(safe-area-inset-right,0px)) 24px max(16px,env(safe-area-inset-left,0px))}
